@@ -130,20 +130,22 @@ class EventRecordService(
             dt = dt.astimezone(timezone(timedelta(hours=sign * hours, minutes=sign * minutes)))
         return dt.date()
 
-    def _recompute_sleep_score(
+    def _recompute_sleep_scores(
         self,
         db_session: DbSession,
         user_id: UUID,
-        sleep_date: date,
+        sleep_dates: set[date],
     ) -> None:
-        """Delete any existing internal sleep score for sleep_date and recompute it immediately.
+        """Delete existing internal sleep scores for each date and recompute them immediately.
 
-        Called after merge/re-ingestion paths commit updated session data.  The
-        session data has already been flushed so sleep_score_service sees the
-        up-to-date detail rows within the same transaction.
+        Accepts multiple dates so callers can cover both the old and new local
+        date when a session shifts across midnight.  The session data has already
+        been flushed, so sleep_score_service sees up-to-date rows within the
+        same transaction.
         """
-        self.health_score_repo.delete_for_user_date(db_session, user_id, sleep_date, HealthScoreCategory.SLEEP)
-        scores = sleep_score_service.get_sleep_scores_for_date_range(db_session, user_id, [sleep_date])
+        for d in sleep_dates:
+            self.health_score_repo.delete_for_user_date(db_session, user_id, d, HealthScoreCategory.SLEEP)
+        scores = sleep_score_service.get_sleep_scores_for_date_range(db_session, user_id, list(sleep_dates))
         if not scores:
             return
         creators = [
@@ -257,6 +259,7 @@ class EventRecordService(
             # retry, score update).  Replace the detail with fresh values instead
             # of accumulating them on top of the existing ones.
             if record.external_id is not None and adjacent.external_id == record.external_id:
+                old_start, old_zone = adjacent.start_datetime, adjacent.zone_offset
                 for field in ("start_datetime", "end_datetime", "zone_offset"):
                     new_val = getattr(record, field, None)
                     if new_val is not None:
@@ -269,10 +272,13 @@ class EventRecordService(
                     detail.model_copy(update={"record_id": adjacent.id}),
                     detail_type="sleep",
                 )
-                self._recompute_sleep_score(
+                self._recompute_sleep_scores(
                     db_session,
                     user_id,
-                    self._local_sleep_date(adjacent.start_datetime, adjacent.zone_offset),
+                    {
+                        self._local_sleep_date(old_start, old_zone),
+                        self._local_sleep_date(adjacent.start_datetime, adjacent.zone_offset),
+                    },
                 )
                 db_session.commit()
                 return adjacent, False, detail
@@ -397,10 +403,10 @@ class EventRecordService(
                     detail.model_copy(update={"record_id": adjacent.id, **merged_detail_fields}),
                     detail_type="sleep",
                 )
-                self._recompute_sleep_score(
+                self._recompute_sleep_scores(
                     db_session,
                     user_id,
-                    self._local_sleep_date(adjacent.start_datetime, adjacent.zone_offset),
+                    {self._local_sleep_date(adjacent.start_datetime, adjacent.zone_offset)},
                 )
                 db_session.commit()
                 return adjacent, False, detail
@@ -424,10 +430,10 @@ class EventRecordService(
                     detail.model_copy(update={"record_id": adjacent.id, **merged_detail_fields}),
                     detail_type="sleep",
                 )
-                self._recompute_sleep_score(
+                self._recompute_sleep_scores(
                     db_session,
                     user_id,
-                    self._local_sleep_date(adjacent.start_datetime, adjacent.zone_offset),
+                    {self._local_sleep_date(adjacent.start_datetime, adjacent.zone_offset)},
                 )
                 db_session.commit()
                 return adjacent, False, detail
@@ -438,11 +444,15 @@ class EventRecordService(
                 merged_final_detail,
                 detail_type="sleep",
             )
+            adj_start, adj_zone = adjacent.start_datetime, adjacent.zone_offset
             self.crud.delete_flush(db_session, adjacent)
-            self._recompute_sleep_score(
+            self._recompute_sleep_scores(
                 db_session,
                 user_id,
-                self._local_sleep_date(created_record.start_datetime, created_record.zone_offset),
+                {
+                    self._local_sleep_date(adj_start, adj_zone),
+                    self._local_sleep_date(created_record.start_datetime, created_record.zone_offset),
+                },
             )
             db_session.commit()
             return created_record, True, merged_final_detail
