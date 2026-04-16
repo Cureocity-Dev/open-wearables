@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from logging import Logger, getLogger
 from uuid import UUID, uuid4
@@ -9,6 +9,7 @@ from app.models import (
     DataSource,
     EventRecord,
     EventRecordDetail,
+    HealthScore,
     SleepDetails,
     WorkoutDetails,
 )
@@ -17,14 +18,17 @@ from app.repositories import (
     DataSourceRepository,
     EventRecordDetailRepository,
     EventRecordRepository,
+    HealthScoreRepository,
 )
-from app.schemas.enums import WORKOUTS_WITH_PACE
+from app.schemas.enums import WORKOUTS_WITH_PACE, HealthScoreCategory, ProviderName
 from app.schemas.model_crud.activities import (
     EventRecordCreate,
     EventRecordDetailCreate,
     EventRecordQueryParams,
     EventRecordResponse,
     EventRecordUpdate,
+    HealthScoreCreate,
+    ScoreComponent,
 )
 from app.schemas.model_crud.activities.sleep import SleepStage
 from app.schemas.responses.activity import SleepSession, SleepStagesSummary, Workout, WorkoutDetailed
@@ -37,6 +41,7 @@ from app.schemas.utils import (
     SourceMetadata as DataSourceSchema,
 )
 from app.services.outgoing_webhooks.events import on_activity_created, on_sleep_created, on_workout_created
+from app.services.scores.sleep_service import sleep_score_service
 from app.services.services import AppService
 from app.utils.exceptions import handle_exceptions
 from app.utils.pagination import encode_cursor
@@ -52,6 +57,7 @@ class EventRecordService(
         self.event_record_detail_repo = EventRecordDetailRepository(EventRecordDetail)
         self.data_source_repo = DataSourceRepository()
         self.data_point_series_repo = DataPointSeriesRepository(DataPointSeries)
+        self.health_score_repo = HealthScoreRepository(HealthScore)
 
     def _resolve_avg_hr(
         self,
@@ -113,6 +119,54 @@ class EventRecordService(
             if data_source is not None:
                 self._emit_event_record_webhook(record, data_source, detail)
         return result  # type: ignore[return-value]
+
+    @staticmethod
+    def _local_sleep_date(start_datetime: datetime, zone_offset: str | None) -> date:
+        """Return the local calendar date of a sleep session start (mirrors SQL logic in fill task)."""
+        dt = start_datetime if start_datetime.tzinfo is not None else start_datetime.replace(tzinfo=timezone.utc)
+        if zone_offset is not None:
+            sign = 1 if zone_offset[0] == "+" else -1
+            hours, minutes = int(zone_offset[1:3]), int(zone_offset[4:6])
+            dt = dt.astimezone(timezone(timedelta(hours=sign * hours, minutes=sign * minutes)))
+        return dt.date()
+
+    def _recompute_sleep_score(
+        self,
+        db_session: DbSession,
+        user_id: UUID,
+        sleep_date: date,
+    ) -> None:
+        """Delete any existing internal sleep score for sleep_date and recompute it immediately.
+
+        Called after merge/re-ingestion paths commit updated session data.  The
+        session data has already been flushed so sleep_score_service sees the
+        up-to-date detail rows within the same transaction.
+        """
+        self.health_score_repo.delete_for_user_date(
+            db_session, user_id, sleep_date, HealthScoreCategory.SLEEP
+        )
+        scores = sleep_score_service.get_sleep_scores_for_date_range(db_session, user_id, [sleep_date])
+        if not scores:
+            return
+        creators = [
+            HealthScoreCreate(
+                id=uuid4(),
+                user_id=user_id,
+                data_source_id=None,
+                provider=ProviderName.INTERNAL,
+                category=HealthScoreCategory.SLEEP,
+                value=result.overall_score,
+                recorded_at=datetime(d.year, d.month, d.day, tzinfo=timezone.utc),
+                components={
+                    "duration": ScoreComponent(value=result.breakdown.duration.score),
+                    "stages": ScoreComponent(value=result.breakdown.stages.score),
+                    "consistency": ScoreComponent(value=result.breakdown.consistency.score),
+                    "interruptions": ScoreComponent(value=result.breakdown.interruptions.score),
+                },
+            )
+            for d, result in scores.items()
+        ]
+        self.health_score_repo.bulk_create(db_session, creators)
 
     def find_adjacent_sleep_record(
         self,
@@ -216,6 +270,11 @@ class EventRecordService(
                     db_session,
                     detail.model_copy(update={"record_id": adjacent.id}),
                     detail_type="sleep",
+                )
+                self._recompute_sleep_score(
+                    db_session,
+                    user_id,
+                    self._local_sleep_date(adjacent.start_datetime, adjacent.zone_offset),
                 )
                 db_session.commit()
                 return adjacent, False, detail
@@ -340,6 +399,11 @@ class EventRecordService(
                     detail.model_copy(update={"record_id": adjacent.id, **merged_detail_fields}),
                     detail_type="sleep",
                 )
+                self._recompute_sleep_score(
+                    db_session,
+                    user_id,
+                    self._local_sleep_date(adjacent.start_datetime, adjacent.zone_offset),
+                )
                 db_session.commit()
                 return adjacent, False, detail
 
@@ -362,6 +426,11 @@ class EventRecordService(
                     detail.model_copy(update={"record_id": adjacent.id, **merged_detail_fields}),
                     detail_type="sleep",
                 )
+                self._recompute_sleep_score(
+                    db_session,
+                    user_id,
+                    self._local_sleep_date(adjacent.start_datetime, adjacent.zone_offset),
+                )
                 db_session.commit()
                 return adjacent, False, detail
 
@@ -372,6 +441,11 @@ class EventRecordService(
                 detail_type="sleep",
             )
             self.crud.delete_flush(db_session, adjacent)
+            self._recompute_sleep_score(
+                db_session,
+                user_id,
+                self._local_sleep_date(created_record.start_datetime, created_record.zone_offset),
+            )
             db_session.commit()
             return created_record, True, merged_final_detail
 
