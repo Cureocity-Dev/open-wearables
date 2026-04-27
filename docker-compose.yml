@@ -179,7 +179,7 @@ services:
     image: open-wearables-frontend:dev
     pull_policy: never
     environment:
-      - VITE_API_URL=http://backend__open-wearables:8000
+      - VITE_API_URL=https://dev.open-wearable-backend.cureo.city
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     depends_on:
