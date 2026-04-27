@@ -32,10 +32,13 @@ jobs:
             # Pull latest changes
             git pull origin ${{ github.ref_name }}
 
-            # Handle .env file (required by docker compose)
-            if [ ! -f backend/config/.env ]; then
+            # Handle .env file (copy from /home/ubuntu/wearable.env)
+            if [ -f /home/ubuntu/wearable.env ]; then
+              cp /home/ubuntu/wearable.env backend/config/.env
+              echo "Updated backend/config/.env from /home/ubuntu/wearable.env"
+            elif [ ! -f backend/config/.env ]; then
               cp backend/config/.env.example backend/config/.env
-              echo "Created backend/config/.env from example template."
+              echo "Warning: /home/ubuntu/wearable.env not found. Created from example."
             fi
 
             # Rebuild and restart containers
