@@ -30,7 +30,13 @@ jobs:
             fi
 
             # Pull latest changes
-            git pull origin main
+            git pull origin ${{ github.ref_name }}
+
+            # Handle .env file (required by docker compose)
+            if [ ! -f backend/config/.env ]; then
+              cp backend/config/.env.example backend/config/.env
+              echo "Created backend/config/.env from example template."
+            fi
 
             # Rebuild and restart containers
             docker compose up -d --build
