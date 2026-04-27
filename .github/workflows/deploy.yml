@@ -1,0 +1,35 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEV_IP }}
+          username: ${{ secrets.DEV_USER }}
+          key: ${{ secrets.DEV_SSH_KEY }}
+          script: |
+            # Navigate to project directory
+            mkdir -p ~/open-wearables
+            cd ~/open-wearables
+
+            # If not a git repo, clone it
+            if [ ! -d .git ]; then
+              git clone git@github-wearable:${{ github.repository }}.git .
+            fi
+
+            # Pull latest changes
+            git pull origin main
+
+            # Rebuild and restart containers
+            docker compose up -d --build
