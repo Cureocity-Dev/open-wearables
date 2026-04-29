@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - uat-deploy
-      - test
 
 jobs:
   deploy:
@@ -40,6 +39,9 @@ jobs:
               cp backend/config/.env.example backend/config/.env
               echo "Warning: /home/ec2-user/wearable.env not found. Created from example."
             fi
+
+            # Remove existing containers
+            docker compose down
 
             # Rebuild and restart containers
             docker compose up -d --build
