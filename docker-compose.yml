@@ -27,13 +27,10 @@ services:
     env_file:
       - ./backend/config/.env
     environment:
-      - DB_HOST=db
       - REDIS_HOST=redis
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
-      db:
-        condition: service_healthy
       redis:
         condition: service_started
     develop:
@@ -65,11 +62,9 @@ services:
     env_file:
       - ./backend/config/.env
     environment:
-      - DB_HOST=db
       - REDIS_HOST=redis
     depends_on:
       - redis
-      - db
       - app
     develop:
       watch:
@@ -88,11 +83,9 @@ services:
     env_file:
       - ./backend/config/.env
     environment:
-      - DB_HOST=db
       - REDIS_HOST=redis
     depends_on:
       - redis
-      - db
       - app
     develop:
       watch:
@@ -111,13 +104,11 @@ services:
     env_file:
       - ./backend/config/.env
     environment:
-      - DB_HOST=db
       - REDIS_HOST=redis
     ports:
       - "${FLOWER_PORT:-5555}:5555"
     depends_on:
       - redis
-      - db
       - app
     develop:
       watch:
@@ -157,8 +148,6 @@ services:
     ports:
       - "${SVIX_PORT:-8071}:8071"
     depends_on:
-      db:
-        condition: service_healthy
       redis:
         condition: service_started
       app:
@@ -201,5 +190,4 @@ services:
     restart: on-failure
 
 volumes:
-  postgres_data:
   redis_data:
