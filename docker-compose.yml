@@ -12,30 +12,11 @@ services:
     environment:
       - REDIS_HOST=redis
     ports:
-      - "6002:8000"
+      - "8000:8000"
     depends_on:
       redis:
         condition: service_started
-    develop:
-      watch:
-        - action: sync
-          path: ./backend/app
-          target: /root_project/app
-        - action: sync+restart
-          path: ./backend/migrations
-          target: /root_project/migrations
-        - action: sync+restart
-          path: ./backend/config/.env
-          target: /root_project/config/.env
-        - action: sync
-          path: ./backend/scripts
-          target: /root_project/scripts
-        - action: sync
-          path: ./backend/tests
-          target: /root_project/tests
-        - action: rebuild
-          path: ./backend/uv.lock
-    restart: on-failure
+    restart: unless-stopped
 
   celery-worker:
     container_name: celery-worker__open-wearables
@@ -49,14 +30,7 @@ services:
     depends_on:
       - redis
       - app
-    develop:
-      watch:
-        - action: sync+restart
-          path: ./backend/app
-          target: /root_project/app
-        - action: sync
-          path: ./backend/scripts
-          target: /root_project/scripts
+    restart: unless-stopped
 
   celery-beat:
     container_name: celery-beat__open-wearables
@@ -70,14 +44,7 @@ services:
     depends_on:
       - redis
       - app
-    develop:
-      watch:
-        - action: sync+restart
-          path: ./backend/app
-          target: /root_project/app
-        - action: sync
-          path: ./backend/scripts
-          target: /root_project/scripts
+    restart: unless-stopped
 
   flower:
     container_name: flower__open-wearables
@@ -89,25 +56,20 @@ services:
     environment:
       - REDIS_HOST=redis
     ports:
-      - "6003:5555"
+      - 5555:5555
     depends_on:
       - redis
       - app
-    develop:
-      watch:
-        - action: sync
-          path: ./backend
-          target: /root_project
-          ignore:
-            - .venv/
+    restart: unless-stopped
 
   redis:
     container_name: redis__open-wearables
     image: redis:8
     ports:
-      - "6004:6379"
+      - "6379:6379"
     volumes:
       - redis_data:/var/lib/redis/data
+    restart: unless-stopped
 
   svix-server:
     container_name: svix-server__open-wearables
@@ -124,12 +86,12 @@ services:
     env_file:
       - ./backend/config/.env
     environment:
-      SVIX_DB_DSN: "postgresql://${DB_USER:-open-wearables}:${DB_PASSWORD:-open-wearables}@${DB_HOST:-db}:${DB_PORT:-5432}/svix"
+      SVIX_DB_DSN: "postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/svix"
       SVIX_QUEUE_TYPE: "redis"
       SVIX_REDIS_DSN: "redis://redis:6379/1"
       SVIX_CACHE_TYPE: "redis"
-    ports:
-      - "6005:8071"
+    expose:
+      - "8071"
     depends_on:
       redis:
         condition: service_started
@@ -141,36 +103,22 @@ services:
       timeout: 3s
       retries: 20
       start_period: 10s
-    restart: on-failure
+    restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:?Set VITE_API_URL in your environment}
     container_name: frontend__open-wearables
-    image: open-wearables-frontend:dev
+    image: open-wearables-frontend:latest
     pull_policy: never
-    environment:
-      - VITE_API_URL=https://open-wearable-backend.cureo.city
     ports:
-      - "6006:3000"
+      - "3000:3000"
     depends_on:
       - app
-    develop:
-      watch:
-        - action: sync
-          path: ./frontend/src
-          target: /app/src
-        - action: sync
-          path: ./frontend/public
-          target: /app/public
-        - action: rebuild
-          path: ./frontend/package.json
-        - action: rebuild
-          path: ./frontend/pnpm-lock.yaml
-        - action: rebuild
-          path: ./frontend/vite.config.ts
-    restart: on-failure
+    restart: unless-stopped
 
 volumes:
   redis_data:
