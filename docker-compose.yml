@@ -12,7 +12,7 @@ services:
     environment:
       - REDIS_HOST=redis
     ports:
-      - "8000:8000"
+      - "6002:8000"
     depends_on:
       redis:
         condition: service_started
@@ -56,7 +56,7 @@ services:
     environment:
       - REDIS_HOST=redis
     ports:
-      - 5555:5555
+      - 6003:5555
     depends_on:
       - redis
       - app
@@ -66,7 +66,7 @@ services:
     container_name: redis__open-wearables
     image: redis:8
     ports:
-      - "6380:6379"
+      - "6004:6379"
     volumes:
       - redis_data:/var/lib/redis/data
     restart: unless-stopped
@@ -90,8 +90,8 @@ services:
       SVIX_QUEUE_TYPE: "redis"
       SVIX_REDIS_DSN: "redis://redis:6379/1"
       SVIX_CACHE_TYPE: "redis"
-    expose:
-      - "8071"
+    ports:
+      - "6005:8071"
     depends_on:
       redis:
         condition: service_started
@@ -115,7 +115,7 @@ services:
     image: open-wearables-frontend:latest
     pull_policy: never
     ports:
-      - "3000:3000"
+      - "6006:3000"
     depends_on:
       - app
     restart: unless-stopped
