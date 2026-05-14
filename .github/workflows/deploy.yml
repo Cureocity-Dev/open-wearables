@@ -36,7 +36,6 @@ jobs:
               cp /home/ubuntu/wearable.env backend/config/.env
               echo "Updated backend/config/.env from /home/ubuntu/wearable.env"
             elif [ ! -f backend/config/.env ]; then
-              cp backend/config/.env.example backend/config/.env
               echo "Warning: /home/ubuntu/wearable.env not found. Created from example."
             fi
 
@@ -44,4 +43,4 @@ jobs:
             docker compose down
 
             # Rebuild and restart containers
-            docker compose up -d --build
+            docker compose --env-file ./backend/config/.env up -d --build
