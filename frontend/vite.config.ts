@@ -13,7 +13,7 @@ const config = defineConfig({
   server: {
     host: '0.0.0.0',
     port: 3000,
-    allowedHosts: ['uat.open-wearable.cureo.city'],
+    allowedHosts: ['open-wearable.cureo.city'],
     watch: {
       usePolling: true,
     },
