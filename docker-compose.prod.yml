@@ -28,16 +28,32 @@ services:
     env_file:
       - ./backend/config/.env
     environment:
-      - DB_HOST=db
       - REDIS_HOST=redis
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
-      db:
-        condition: service_healthy
       redis:
         condition: service_started
-    restart: unless-stopped
+    develop:
+      watch:
+        - action: sync
+          path: ./backend/app
+          target: /root_project/app
+        - action: sync+restart
+          path: ./backend/migrations
+          target: /root_project/migrations
+        - action: sync+restart
+          path: ./backend/config/.env
+          target: /root_project/config/.env
+        - action: sync
+          path: ./backend/scripts
+          target: /root_project/scripts
+        - action: sync
+          path: ./backend/tests
+          target: /root_project/tests
+        - action: rebuild
+          path: ./backend/uv.lock
+    restart: on-failure
 
   celery-worker:
     container_name: celery-worker__open-wearables
@@ -47,13 +63,18 @@ services:
     env_file:
       - ./backend/config/.env
     environment:
-      - DB_HOST=db
       - REDIS_HOST=redis
     depends_on:
       - redis
-      - db
       - app
-    restart: unless-stopped
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./backend/app
+          target: /root_project/app
+        - action: sync
+          path: ./backend/scripts
+          target: /root_project/scripts
 
   celery-beat:
     container_name: celery-beat__open-wearables
@@ -63,13 +84,18 @@ services:
     env_file:
       - ./backend/config/.env
     environment:
-      - DB_HOST=db
       - REDIS_HOST=redis
     depends_on:
       - redis
-      - db
       - app
-    restart: unless-stopped
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./backend/app
+          target: /root_project/app
+        - action: sync
+          path: ./backend/scripts
+          target: /root_project/scripts
 
   flower:
     container_name: flower__open-wearables
@@ -79,15 +105,19 @@ services:
     env_file:
       - ./backend/config/.env
     environment:
-      - DB_HOST=db
       - REDIS_HOST=redis
     ports:
       - "${FLOWER_PORT:-5555}:5555"
     depends_on:
       - redis
-      - db
       - app
-    restart: unless-stopped
+    develop:
+      watch:
+        - action: sync
+          path: ./backend
+          target: /root_project
+          ignore:
+            - .venv/
 
   redis:
     container_name: redis__open-wearables
@@ -113,15 +143,12 @@ services:
     env_file:
       - ./backend/config/.env
     environment:
-      SVIX_DB_DSN: "postgresql://${DB_USER:-open-wearables}:${DB_PASSWORD:-open-wearables}@${DB_HOST:-db}:${DB_PORT:-5432}/svix"
       SVIX_QUEUE_TYPE: "redis"
       SVIX_REDIS_DSN: "redis://redis:6379/1"
       SVIX_CACHE_TYPE: "redis"
-    expose:
-      - "8071"
+    ports:
+      - "6005:8071"
     depends_on:
-      db:
-        condition: service_healthy
       redis:
         condition: service_started
       app:
@@ -132,23 +159,36 @@ services:
       timeout: 3s
       retries: 20
       start_period: 10s
-    restart: unless-stopped
+    restart: on-failure
 
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        VITE_API_URL: ${VITE_API_URL:?Set VITE_API_URL in your environment}
+      dockerfile: Dockerfile.dev
     container_name: frontend__open-wearables
-    image: open-wearables-frontend:latest
+    image: open-wearables-frontend:dev
     pull_policy: never
+    environment:
+      - VITE_API_URL=https://dev.open-wearable-backend.cureo.city
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     depends_on:
       - app
-    restart: unless-stopped
+    develop:
+      watch:
+        - action: sync
+          path: ./frontend/src
+          target: /app/src
+        - action: sync
+          path: ./frontend/public
+          target: /app/public
+        - action: rebuild
+          path: ./frontend/package.json
+        - action: rebuild
+          path: ./frontend/pnpm-lock.yaml
+        - action: rebuild
+          path: ./frontend/vite.config.ts
+    restart: on-failure
 
 volumes:
-  postgres_data:
   redis_data:
