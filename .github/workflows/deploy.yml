@@ -20,6 +20,10 @@ jobs:
           username: ${{ secrets.DEV_USER }}
           key: ${{ secrets.DEV_SSH_KEY }}
           script: |
+            # Fail the deploy if any command fails (previously a failed
+            # git pull was silently ignored, so stale code kept building).
+            set -euo pipefail
+
             # Navigate to project directory
             mkdir -p ~/open-wearables
             cd ~/open-wearables
@@ -29,8 +33,13 @@ jobs:
               git clone git@github-wearable:${{ github.repository }}.git .
             fi
 
-            # Pull latest changes
-            git pull origin ${{ github.ref_name }}
+            # Force the checkout to exactly match the pushed branch. A plain
+            # `git pull` aborts on a dirty/diverged tree, leaving old source on
+            # disk. fetch + hard reset guarantees the build uses the new code.
+            git fetch origin ${{ github.ref_name }}
+            git reset --hard origin/${{ github.ref_name }}
+            git clean -ffd
+            echo "Checked out commit: $(git rev-parse --short HEAD)"
 
             # Handle .env file (copy from /home/ubuntu/wearable.env)
             if [ -f /home/ubuntu/wearable.env ]; then
