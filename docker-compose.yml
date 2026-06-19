@@ -12,7 +12,7 @@ services:
     environment:
       - REDIS_HOST=redis
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "${API_PORT:-6002}:8000"
     depends_on:
       redis:
         condition: service_started
@@ -89,7 +89,7 @@ services:
     environment:
       - REDIS_HOST=redis
     ports:
-      - "${FLOWER_PORT:-5555}:5555"
+      - "${FLOWER_PORT:-6003}:5555"
     depends_on:
       - redis
       - app
@@ -104,13 +104,11 @@ services:
   redis:
     container_name: redis__open-wearables
     image: redis:8
-    # No host port mapping: redis is internal-only, reached by services via
-    # `redis:6379` on the compose network. Publishing 6379 collided with the
-    # host's existing redis ("port is already allocated") and exposed it.
-    expose:
-      - "6379"
+    # Host port 6004 (not 6379) avoids colliding with the host's own redis.
+    ports:
+      - "${REDIS_PORT:-6004}:6379"
     volumes:
-      - redis_data:/data
+      - redis_data:/var/lib/redis/data
 
   svix-server:
     container_name: svix-server__open-wearables
@@ -131,7 +129,7 @@ services:
       SVIX_REDIS_DSN: "redis://redis:6379/1"
       SVIX_CACHE_TYPE: "redis"
     ports:
-      - "${SVIX_PORT:-8071}:8071"
+      - "${SVIX_PORT:-6005}:8071"
     depends_on:
       redis:
         condition: service_started
@@ -155,7 +153,7 @@ services:
     environment:
       - VITE_API_URL=https://dev.open-wearable-backend.cureo.city
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "${FRONTEND_PORT:-6006}:3000"
     depends_on:
       - app
     develop:
