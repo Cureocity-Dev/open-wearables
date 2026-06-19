@@ -50,6 +50,10 @@ jobs:
               echo "Warning: /home/ubuntu/wearable.env not found. Created from example."
             fi
 
+            # Stop and remove existing containers first so host ports are
+            # released and no stale container lingers before recreate.
+            docker compose down --remove-orphans
+
             # Rebuild images (code changes invalidate the COPY layer, so
             # normal cache is fine and fast). Builds app + frontend; the shared
             # open-wearables-platform:latest image is produced by the app build.

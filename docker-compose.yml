@@ -104,8 +104,11 @@ services:
   redis:
     container_name: redis__open-wearables
     image: redis:8
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
+    # No host port mapping: redis is internal-only, reached by services via
+    # `redis:6379` on the compose network. Publishing 6379 collided with the
+    # host's existing redis ("port is already allocated") and exposed it.
+    expose:
+      - "6379"
     volumes:
       - redis_data:/data
 
