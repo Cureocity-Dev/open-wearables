@@ -41,5 +41,19 @@ jobs:
               echo "Warning: /home/ubuntu/wearable.env not found. Created from example."
             fi
 
-            # Rebuild and restart containers
-            docker compose up -d --build
+            # Rebuild images (code changes invalidate the COPY layer, so
+            # normal cache is fine and fast). Builds app + frontend; the shared
+            # open-wearables-platform:latest image is produced by the app build.
+            docker compose build
+
+            # Clean restart. --force-recreate recreates EVERY container — without
+            # it, worker/beat/flower keep the old container (they share the
+            # :latest image with no build section, so compose thinks they are
+            # unchanged and skips them, leaving stale code running).
+            docker compose up -d --force-recreate --remove-orphans
+
+            # Drop dangling images left by the rebuild.
+            docker image prune -f
+
+            # Show resulting state in the deploy log.
+            docker compose ps
