@@ -23,7 +23,6 @@ class SeriesType(str, Enum):
     heart_rate_variability_sdnn = "heart_rate_variability_sdnn"
     heart_rate_recovery_one_minute = "heart_rate_recovery_one_minute"
     walking_heart_rate_average = "walking_heart_rate_average"
-    recovery_score = "recovery_score"
     heart_rate_variability_rmssd = "heart_rate_variability_rmssd"
 
     # =========================================================================
@@ -110,6 +109,8 @@ class SeriesType(str, Enum):
     running_vertical_oscillation = "running_vertical_oscillation"
     running_ground_contact_time = "running_ground_contact_time"
     running_stride_length = "running_stride_length"
+    running_vertical_ratio = "running_vertical_ratio"
+    running_stance_time_balance = "running_stance_time_balance"
 
     # =========================================================================
     # ACTIVITY - Swimming Metrics (IDs 160-179)
@@ -140,6 +141,10 @@ class SeriesType(str, Enum):
     inhaler_usage = "inhaler_usage"
     weather_temperature = "weather_temperature"
     weather_humidity = "weather_humidity"
+    elevation = "elevation"
+    latitude = "latitude"
+    longitude = "longitude"
+    air_temperature = "air_temperature"
 
     # =========================================================================
     # GARMIN-SPECIFIC METRICS (IDs 220-239)
@@ -178,7 +183,6 @@ SERIES_TYPE_DEFINITIONS: list[tuple[int, SeriesType, str]] = [
     (3, SeriesType.heart_rate_variability_sdnn, "ms"),
     (4, SeriesType.heart_rate_recovery_one_minute, "bpm"),
     (5, SeriesType.walking_heart_rate_average, "bpm"),
-    (6, SeriesType.recovery_score, "score"),
     (7, SeriesType.heart_rate_variability_rmssd, "ms"),
     # -------------------------------------------------------------------------
     # BIOMETRICS - Blood & Respiratory (IDs 20-39)
@@ -193,7 +197,7 @@ SERIES_TYPE_DEFINITIONS: list[tuple[int, SeriesType, str]] = [
     (27, SeriesType.peripheral_perfusion_index, "score"),
     (28, SeriesType.forced_vital_capacity, "liters"),
     (29, SeriesType.forced_expiratory_volume_1, "liters"),
-    (30, SeriesType.peak_expiratory_flow_rate, "liters"),
+    (30, SeriesType.peak_expiratory_flow_rate, "L/min"),
     (31, SeriesType.breathing_disturbance_index, "score"),
     # -------------------------------------------------------------------------
     # BIOMETRICS - Body Composition (IDs 40-59)
@@ -253,6 +257,8 @@ SERIES_TYPE_DEFINITIONS: list[tuple[int, SeriesType, str]] = [
     (142, SeriesType.running_vertical_oscillation, "cm"),
     (143, SeriesType.running_ground_contact_time, "ms"),
     (144, SeriesType.running_stride_length, "cm"),
+    (145, SeriesType.running_vertical_ratio, "percent"),
+    (146, SeriesType.running_stance_time_balance, "percent"),
     # -------------------------------------------------------------------------
     # ACTIVITY - Swimming Metrics (IDs 160-179)
     # -------------------------------------------------------------------------
@@ -278,6 +284,10 @@ SERIES_TYPE_DEFINITIONS: list[tuple[int, SeriesType, str]] = [
     (206, SeriesType.inhaler_usage, "count"),
     (207, SeriesType.weather_temperature, "celsius"),
     (208, SeriesType.weather_humidity, "percent"),
+    (209, SeriesType.elevation, "meters"),
+    (210, SeriesType.latitude, "degrees"),
+    (211, SeriesType.longitude, "degrees"),
+    (212, SeriesType.air_temperature, "celsius"),
     # -------------------------------------------------------------------------
     # GARMIN-SPECIFIC METRICS (IDs 220-239)
     # -------------------------------------------------------------------------

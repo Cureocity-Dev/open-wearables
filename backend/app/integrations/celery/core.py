@@ -1,12 +1,15 @@
 import logging
+import ssl
 import sys
 from logging import Formatter, LogRecord, StreamHandler, getLogger
+from typing import cast
 
-from app.config import settings
-from app.services import raw_payload_storage
 from celery import Celery, signals
 from celery import current_app as current_celery_app
 from celery.schedules import crontab
+
+from app.config import settings
+from app.services import raw_payload_storage
 
 _WEBHOOK_TASK = "emit_webhook_event_task.emit_webhook_event"
 
@@ -69,11 +72,12 @@ def init_raw_payload_storage(**kwargs) -> None:
         s3_bucket=settings.raw_payload_s3_bucket or settings.aws_bucket_name,
         s3_prefix=settings.raw_payload_s3_prefix,
         s3_endpoint_url=settings.raw_payload_s3_endpoint_url,
+        fit_files_enabled=settings.store_fit_files,
     )
 
 
 def create_celery() -> Celery:
-    celery_app: Celery = current_celery_app  # type: ignore[assignment]
+    celery_app = cast(Celery, current_celery_app)
     celery_app.conf.update(
         broker_url=settings.redis_url,
         result_backend=settings.redis_url,
@@ -91,14 +95,21 @@ def create_celery() -> Celery:
             "default": {},
             "sdk_sync": {},
             "garmin_sync": {},
+            "webhook_sync": {},
         },
         task_routes={
             "app.integrations.celery.tasks.process_sdk_upload_task.process_sdk_upload": {"queue": "sdk_sync"},
-            "app.integrations.celery.tasks.garmin_webhook_task.process_push": {"queue": "garmin_sync"},
         },
     )
 
-    celery_app.autodiscover_tasks(["app.integrations.celery.tasks"])
+    # rediss:// alone isn't enough for Celery — the broker/result transports read
+    # their TLS requirements from these dicts. Required for ElastiCache (TLS).
+    if settings.redis_ssl:
+        ssl_options = {"ssl_cert_reqs": ssl.CERT_REQUIRED}
+        celery_app.conf.broker_use_ssl = ssl_options
+        celery_app.conf.redis_backend_use_ssl = ssl_options
+
+    celery_app.autodiscover_tasks(["app.integrations.celery.tasks", "app.integrations.celery.tasks.garmin"])
 
     celery_app.conf.beat_schedule = {
         "sync-all-users-periodic": {
@@ -114,7 +125,7 @@ def create_celery() -> Celery:
             "kwargs": {},
         },
         "gc-stuck-garmin-backfills": {
-            "task": "app.integrations.celery.tasks.garmin_gc_task.gc_stuck_backfills",
+            "task": "app.integrations.celery.tasks.garmin.gc_task.gc_stuck_backfills",
             "schedule": 180.0,  # Every 3 minutes
             "args": (),
             "kwargs": {},
@@ -134,6 +145,12 @@ def create_celery() -> Celery:
         "fill-missing-resilience-scores": {
             "task": "app.integrations.celery.tasks.fill_missing_resilience_scores_task.fill_missing_resilience_scores",
             "schedule": float(settings.resilience_score_interval_seconds),
+            "args": (),
+            "kwargs": {},
+        },
+        "renew-oura-webhooks-monthly": {
+            "task": "app.integrations.celery.tasks.renew_oura_webhooks_task.renew_oura_webhooks",
+            "schedule": crontab(day_of_month=1, hour=0, minute=0),  # 1st of each month at 00:00 UTC
             "args": (),
             "kwargs": {},
         },

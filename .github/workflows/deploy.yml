@@ -3,7 +3,8 @@ name: Deploy to EC2
 on:
   push:
     branches:
-      - master
+      - main
+      - develop
 
 jobs:
   deploy:
@@ -15,10 +16,14 @@ jobs:
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.PROD_IP }}
-          username: ${{ secrets.PROD_USER }}
-          key: ${{ secrets.PROD_SSH_KEY }}
+          host: ${{ secrets.DEV_IP }}
+          username: ${{ secrets.DEV_USER }}
+          key: ${{ secrets.DEV_SSH_KEY }}
           script: |
+            # Fail the deploy if any command fails (previously a failed
+            # git pull was silently ignored, so stale code kept building).
+            set -euo pipefail
+
             # Navigate to project directory
             mkdir -p ~/open-wearables
             cd ~/open-wearables
@@ -28,19 +33,40 @@ jobs:
               git clone git@github-wearable:${{ github.repository }}.git .
             fi
 
-            # Pull latest changes
-            git pull origin ${{ github.ref_name }}
+            # Force the checkout to exactly match the pushed branch. A plain
+            # `git pull` aborts on a dirty/diverged tree, leaving old source on
+            # disk. fetch + hard reset guarantees the build uses the new code.
+            git fetch origin ${{ github.ref_name }}
+            git reset --hard origin/${{ github.ref_name }}
+            git clean -ffd
+            echo "Checked out commit: $(git rev-parse --short HEAD)"
 
             # Handle .env file (copy from /home/ubuntu/wearable.env)
             if [ -f /home/ubuntu/wearable.env ]; then
               cp /home/ubuntu/wearable.env backend/config/.env
               echo "Updated backend/config/.env from /home/ubuntu/wearable.env"
             elif [ ! -f backend/config/.env ]; then
+              cp backend/config/.env.example backend/config/.env
               echo "Warning: /home/ubuntu/wearable.env not found. Created from example."
             fi
 
-            # Remove existing containers
-            docker compose down
+            # Stop and remove existing containers first so host ports are
+            # released and no stale container lingers before recreate.
+            docker compose down --remove-orphans
 
-            # Rebuild and restart containers
-            docker compose --env-file ./backend/config/.env up -d --build
+            # Rebuild images (code changes invalidate the COPY layer, so
+            # normal cache is fine and fast). Builds app + frontend; the shared
+            # open-wearables-platform:latest image is produced by the app build.
+            docker compose build
+
+            # Clean restart. --force-recreate recreates EVERY container — without
+            # it, worker/beat/flower keep the old container (they share the
+            # :latest image with no build section, so compose thinks they are
+            # unchanged and skips them, leaving stale code running).
+            docker compose up -d --force-recreate --remove-orphans
+
+            # Drop dangling images left by the rebuild.
+            docker image prune -f
+
+            # Show resulting state in the deploy log.
+            docker compose ps
