@@ -23,3 +23,4 @@ class UserInvitationCode(BaseDbModel):
     expires_at: Mapped[datetime]
     redeemed_at: Mapped[datetime | None]
     revoked_at: Mapped[datetime | None]
+    created_at: Mapped[datetime]

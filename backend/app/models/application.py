@@ -15,4 +15,5 @@ class Application(BaseDbModel):
     app_secret_hash: Mapped[str]  # bcrypt hashed secret
     name: Mapped[str_100]  # Display name
     developer_id: Mapped[FKDeveloper]  # Owner developer
+    created_at: Mapped[datetime]
     updated_at: Mapped[datetime]

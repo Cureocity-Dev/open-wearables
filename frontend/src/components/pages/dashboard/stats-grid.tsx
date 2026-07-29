@@ -1,5 +1,5 @@
 import { Users, Activity, Database } from 'lucide-react';
-import { StatsCard, type StatsCardAccent } from './stats-card';
+import { StatsCard } from './stats-card';
 import { cn } from '@/lib/utils';
 import type { DashboardStats } from '@/lib/api/types';
 
@@ -9,16 +9,7 @@ export interface StatsGridProps {
 }
 
 export function StatsGrid({ stats, className }: StatsGridProps) {
-  const statCards: Array<{
-    title: string;
-    value: number;
-    suffix: string;
-    description: string;
-    icon: typeof Users;
-    growth?: number;
-    decimalPlaces?: number;
-    accent: StatsCardAccent;
-  }> = [
+  const statCards = [
     {
       title: 'Total Users',
       value: stats.total_users.count,
@@ -26,7 +17,6 @@ export function StatsGrid({ stats, className }: StatsGridProps) {
       description: 'Registered users',
       icon: Users,
       growth: stats.total_users.weekly_growth,
-      accent: 'cyan',
     },
     {
       title: 'Active Connections',
@@ -35,7 +25,6 @@ export function StatsGrid({ stats, className }: StatsGridProps) {
       description: 'Connected wearables',
       icon: Activity,
       growth: stats.active_conn.weekly_growth,
-      accent: 'magenta',
     },
     {
       title: 'Data Points',
@@ -45,7 +34,6 @@ export function StatsGrid({ stats, className }: StatsGridProps) {
       icon: Database,
       decimalPlaces: 1,
       growth: stats.data_points.weekly_growth,
-      accent: 'purple',
     },
   ];
 
@@ -61,7 +49,6 @@ export function StatsGrid({ stats, className }: StatsGridProps) {
           icon={stat.icon}
           growth={stat.growth}
           decimalPlaces={stat.decimalPlaces}
-          accent={stat.accent}
         />
       ))}
     </div>

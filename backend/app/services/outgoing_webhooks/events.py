@@ -14,7 +14,6 @@ from uuid import UUID
 
 from app.constants.webhooks.events import SERIES_TYPE_TO_GRANULAR_EVENT, SERIES_TYPE_TO_GROUP_EVENT
 from app.schemas.webhooks.event_types import WebhookEventType
-from app.services.outgoing_webhooks import svix as svix_service
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +43,10 @@ def _dispatch(
 ) -> None:
     """Schedule the Celery emit task.
 
-    Silently drops the event when Svix is not configured or the broker
-    (Redis) is unreachable so that data ingestion is never blocked by
-    webhook infrastructure.
+    Import is deferred to avoid circular dependencies. Silently drops the
+    event when the broker (Redis) is unreachable so that data ingestion is
+    never blocked by webhook infrastructure.
     """
-    if not svix_service.is_enabled():
-        return
     try:
         from app.integrations.celery.tasks.emit_webhook_event_task import emit_webhook_event
 
@@ -98,44 +95,6 @@ def on_workout_created(
             },
         },
         idempotency_key=f"workout.created.{record_id}",
-        channels=[f"user.{user_id}"],
-    )
-
-
-def on_menstrual_cycle_created(
-    *,
-    record_id: UUID,
-    user_id: UUID,
-    provider: str,
-    device: str | None,
-    start_time: str,
-    end_time: str,
-    zone_offset: str | None,
-    current_phase_type: str | None = None,
-    day_in_cycle: int | None = None,
-    cycle_length: int | None = None,
-    is_predicted_cycle: bool | None = None,
-    pregnancy_snapshot: list[dict] | None = None,
-) -> None:
-    _dispatch(
-        WebhookEventType.MENSTRUAL_CYCLE_CREATED,
-        {
-            "type": WebhookEventType.MENSTRUAL_CYCLE_CREATED,
-            "data": {
-                "id": str(record_id),
-                "user_id": str(user_id),
-                "start_time": start_time,
-                "end_time": end_time,
-                "zone_offset": zone_offset,
-                "source": {"provider": provider, "device": device},
-                "current_phase_type": current_phase_type,
-                "day_in_cycle": day_in_cycle,
-                "cycle_length": cycle_length,
-                "is_predicted_cycle": is_predicted_cycle,
-                "pregnancy_snapshot": pregnancy_snapshot,
-            },
-        },
-        idempotency_key=f"menstrual_cycle.created.{record_id}",
         channels=[f"user.{user_id}"],
     )
 
@@ -278,92 +237,5 @@ def on_connection_created(
             },
         },
         idempotency_key=f"connection.created.{user_id}.{provider}",
-        channels=[f"user.{user_id}"],
-    )
-
-
-def on_sync_started(
-    *,
-    user_id: UUID,
-    provider: str,
-    source: str,
-    run_id: str,
-    message: str | None = None,
-    metadata: dict[str, Any] | None = None,
-) -> None:
-    _dispatch(
-        WebhookEventType.SYNC_STARTED,
-        {
-            "type": WebhookEventType.SYNC_STARTED,
-            "data": {
-                "user_id": str(user_id),
-                "provider": provider,
-                "source": source,
-                "run_id": run_id,
-                "message": message,
-                "metadata": metadata or {},
-            },
-        },
-        idempotency_key=f"sync.started.{run_id}",
-        channels=[f"user.{user_id}"],
-    )
-
-
-def on_sync_completed(
-    *,
-    user_id: UUID,
-    provider: str,
-    source: str,
-    run_id: str,
-    status: str,
-    message: str | None = None,
-    items_processed: int | None = None,
-    metadata: dict[str, Any] | None = None,
-) -> None:
-    _dispatch(
-        WebhookEventType.SYNC_COMPLETED,
-        {
-            "type": WebhookEventType.SYNC_COMPLETED,
-            "data": {
-                "user_id": str(user_id),
-                "provider": provider,
-                "source": source,
-                "run_id": run_id,
-                "status": status,
-                "message": message,
-                "items_processed": items_processed,
-                "metadata": metadata or {},
-            },
-        },
-        idempotency_key=f"sync.completed.{run_id}",
-        channels=[f"user.{user_id}"],
-    )
-
-
-def on_sync_failed(
-    *,
-    user_id: UUID,
-    provider: str,
-    source: str,
-    run_id: str,
-    error: str,
-    message: str | None = None,
-    metadata: dict[str, Any] | None = None,
-) -> None:
-    _dispatch(
-        WebhookEventType.SYNC_FAILED,
-        {
-            "type": WebhookEventType.SYNC_FAILED,
-            "data": {
-                "user_id": str(user_id),
-                "provider": provider,
-                "source": source,
-                "run_id": run_id,
-                "error": error,
-                "message": message,
-                "metadata": metadata or {},
-            },
-        },
-        idempotency_key=f"sync.failed.{run_id}",
         channels=[f"user.{user_id}"],
     )

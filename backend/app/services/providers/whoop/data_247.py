@@ -52,14 +52,7 @@ class Whoop247Data(Base247DataTemplate):
         headers: dict[str, str] | None = None,
     ) -> Any:
         """Make authenticated request to Whoop API."""
-        log_structured(
-            self.logger,
-            "debug",
-            f"Making API request to {endpoint}",
-            provider="whoop",
-            endpoint=endpoint,
-            params=params,
-        )
+        print(f"Making API request to {endpoint} with params: {params}")
         return make_authenticated_request(
             db=db,
             user_id=user_id,
@@ -131,7 +124,6 @@ class Whoop247Data(Base247DataTemplate):
                     f"Error fetching Whoop sleep data: {e}",
                     provider="whoop",
                     task="get_sleep_data",
-                    user_id=str(user_id),
                 )
                 # If we got some data, return what we have; otherwise re-raise
                 if all_sleep_data:
@@ -141,7 +133,6 @@ class Whoop247Data(Base247DataTemplate):
                         f"Returning partial sleep data due to error: {e}",
                         provider="whoop",
                         task="get_sleep_data",
-                        user_id=str(user_id),
                     )
                     break
                 raise
@@ -184,11 +175,11 @@ class Whoop247Data(Base247DataTemplate):
             components=components or None,
         )
 
-    def normalize_sleep(
+    def normalize_sleep(  # type: ignore[override]
         self,
         raw_sleep: dict[str, Any],
         user_id: UUID,
-    ) -> tuple[dict[str, Any], HealthScoreCreate | None]:  # ty:ignore[invalid-method-override]
+    ) -> tuple[dict[str, Any], HealthScoreCreate | None]:
         """Normalize Whoop sleep data to our schema."""
         # Extract basic fields
         sleep_id = raw_sleep.get("id")
@@ -296,7 +287,6 @@ class Whoop247Data(Base247DataTemplate):
                 f"Skipping sleep record {sleep_id}: missing start/end time",
                 provider="whoop",
                 task="save_sleep_data",
-                user_id=str(user_id),
             )
             return
 
@@ -350,51 +340,7 @@ class Whoop247Data(Base247DataTemplate):
                 f"Error saving sleep record {sleep_id}: {e}",
                 provider="whoop",
                 task="save_sleep_data",
-                user_id=str(user_id),
             )
-
-    def get_sleep_record(
-        self,
-        db: DbSession,
-        user_id: UUID,
-        sleep_id: str,
-    ) -> dict[str, Any]:
-        """Fetch a single sleep record by its Whoop ID from /v2/activity/sleep/{id}."""
-        response = self._make_api_request(db, user_id, f"/v2/activity/sleep/{sleep_id}")
-        store_raw_payload(
-            source="api_response",
-            provider="whoop",
-            payload=response,
-            user_id=str(user_id),
-            trace_id=f"/v2/activity/sleep/{sleep_id}",
-        )
-        return response if isinstance(response, dict) else {}
-
-    def load_single_sleep(
-        self,
-        db: DbSession,
-        user_id: UUID,
-        sleep_id: str,
-    ) -> int:
-        """Fetch a single sleep record by ID, normalize, and save to database."""
-        raw = self.get_sleep_record(db, user_id, sleep_id)
-        if not raw:
-            return 0
-        try:
-            normalized, health_score = self.normalize_sleep(raw, user_id)
-            self.save_sleep_data(db, user_id, normalized)
-            if health_score:
-                health_score_service.create(db, health_score)
-            return 1
-        except Exception as e:
-            log_structured(
-                self.logger,
-                "warning",
-                f"Failed to save sleep record {sleep_id}: {e}",
-                provider="whoop",
-                task="load_single_sleep",
-            )
-            return 0
 
     def load_and_save_sleep(
         self,
@@ -415,14 +361,12 @@ class Whoop247Data(Base247DataTemplate):
                 if health_score:
                     health_scores.append(health_score)
             except Exception as e:
-                db.rollback()
                 log_structured(
                     self.logger,
                     "warning",
                     f"Failed to save sleep data: {e}",
                     provider="whoop",
                     task="load_and_save_sleep",
-                    user_id=str(user_id),
                 )
         if health_scores:
             health_score_service.bulk_create(db, health_scores)
@@ -453,9 +397,9 @@ class Whoop247Data(Base247DataTemplate):
             end_time = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
 
         if not start_time:
-            start_time = datetime.now(timezone.utc) - timedelta(days=30)
+            start_time = datetime.now() - timedelta(days=30)
         if not end_time:
-            end_time = datetime.now(timezone.utc)
+            end_time = datetime.now()
 
         results = {
             "sleep_sessions_synced": 0,
@@ -467,40 +411,26 @@ class Whoop247Data(Base247DataTemplate):
         try:
             results["sleep_sessions_synced"] = self.load_and_save_sleep(db, user_id, start_time, end_time)
         except Exception as e:
-            db.rollback()
             log_structured(
-                self.logger,
-                "error",
-                f"Failed to sync sleep data: {e}",
-                provider="whoop",
-                task="load_and_save_all",
-                user_id=str(user_id),
+                self.logger, "error", f"Failed to sync sleep data: {e}", provider="whoop", task="load_and_save_all"
             )
 
         try:
             results["recovery_samples_synced"] = self.load_and_save_recovery(db, user_id, start_time, end_time)
         except Exception as e:
-            db.rollback()
             log_structured(
-                self.logger,
-                "error",
-                f"Failed to sync recovery data: {e}",
-                provider="whoop",
-                task="load_and_save_all",
-                user_id=str(user_id),
+                self.logger, "error", f"Failed to sync recovery data: {e}", provider="whoop", task="load_and_save_all"
             )
 
         try:
             results["body_measurement_samples_synced"] = self.load_and_save_body_measurement(db, user_id)
         except Exception as e:
-            db.rollback()
             log_structured(
                 self.logger,
                 "error",
                 f"Failed to sync body measurement data: {e}",
                 provider="whoop",
                 task="load_and_save_all",
-                user_id=str(user_id),
             )
 
         return results
@@ -536,7 +466,6 @@ class Whoop247Data(Base247DataTemplate):
                 f"Error fetching Whoop body measurement: {e}",
                 provider="whoop",
                 task="get_body_measurement",
-                user_id=str(user_id),
             )
             return {}
 
@@ -603,7 +532,6 @@ class Whoop247Data(Base247DataTemplate):
                     f"Failed to build height sample: {e}",
                     provider="whoop",
                     task="load_and_save_body_measurement",
-                    user_id=str(user_id),
                 )
 
         # Save weight (already in kilograms) if changed
@@ -631,15 +559,12 @@ class Whoop247Data(Base247DataTemplate):
                     f"Failed to build weight sample: {e}",
                     provider="whoop",
                     task="load_and_save_body_measurement",
-                    user_id=str(user_id),
                 )
 
-        counts: int = 0
         if samples_to_create:
-            counts = timeseries_service.bulk_create_samples(db, samples_to_create)
-            db.commit()
+            timeseries_service.bulk_create_samples(db, samples_to_create)
 
-        return counts
+        return len(samples_to_create)
 
     # -------------------------------------------------------------------------
     # Recovery Data
@@ -703,7 +628,6 @@ class Whoop247Data(Base247DataTemplate):
                     f"Error fetching Whoop recovery data: {e}",
                     provider="whoop",
                     task="get_recovery_data",
-                    user_id=str(user_id),
                 )
                 # If we got some data, return what we have; otherwise re-raise
                 if all_recovery_data:
@@ -713,7 +637,6 @@ class Whoop247Data(Base247DataTemplate):
                         f"Returning partial recovery data due to error: {e}",
                         provider="whoop",
                         task="get_recovery_data",
-                        user_id=str(user_id),
                     )
                     break
                 raise
@@ -745,11 +668,11 @@ class Whoop247Data(Base247DataTemplate):
             components=components or None,
         )
 
-    def normalize_recovery(
+    def normalize_recovery(  # type: ignore[override]
         self,
         raw_recovery: dict[str, Any],
         user_id: UUID,
-    ) -> tuple[dict[str, Any], HealthScoreCreate | None]:  # ty:ignore[invalid-method-override]
+    ) -> tuple[dict[str, Any], HealthScoreCreate | None]:
         """Normalize Whoop recovery data to our schema.
 
         Extracts recovery metrics from the score object:
@@ -820,6 +743,7 @@ class Whoop247Data(Base247DataTemplate):
 
         # Map WHOOP fields to SeriesType
         metrics = [
+            ("recovery_score", SeriesType.recovery_score),
             ("resting_heart_rate", SeriesType.resting_heart_rate),
             ("hrv_rmssd_milli", SeriesType.heart_rate_variability_rmssd),
             ("spo2_percentage", SeriesType.oxygen_saturation),
@@ -848,60 +772,12 @@ class Whoop247Data(Base247DataTemplate):
                         f"Failed to build recovery sample {field_name}: {e}",
                         provider="whoop",
                         task="save_recovery_data",
-                        user_id=str(user_id),
                     )
 
-        counts: int = 0
         if samples_to_create:
-            counts = timeseries_service.bulk_create_samples(db, samples_to_create)
-            db.commit()
+            timeseries_service.bulk_create_samples(db, samples_to_create)
 
-        return counts
-
-    def get_recovery_record(
-        self,
-        db: DbSession,
-        user_id: UUID,
-        cycle_id: str,
-    ) -> dict[str, Any]:
-        """Fetch a single recovery record by cycle_id from /v2/recovery/{cycle_id}."""
-        response = self._make_api_request(db, user_id, f"/v2/recovery/{cycle_id}")
-        store_raw_payload(
-            source="api_response",
-            provider="whoop",
-            payload=response,
-            user_id=str(user_id),
-            trace_id=f"/v2/recovery/{cycle_id}",
-        )
-        return response if isinstance(response, dict) else {}
-
-    def load_single_recovery(
-        self,
-        db: DbSession,
-        user_id: UUID,
-        cycle_id: str,
-    ) -> int:
-        """Fetch a single recovery record by cycle_id, normalize, and save to database."""
-        raw = self.get_recovery_record(db, user_id, cycle_id)
-        if not raw:
-            return 0
-        try:
-            normalized, health_score = self.normalize_recovery(raw, user_id)
-            if not normalized:
-                return 0
-            count = self.save_recovery_data(db, user_id, normalized)
-            if health_score:
-                health_score_service.create(db, health_score)
-            return count
-        except Exception as e:
-            log_structured(
-                self.logger,
-                "warning",
-                f"Failed to save recovery record {cycle_id}: {e}",
-                provider="whoop",
-                task="load_single_recovery",
-            )
-            return 0
+        return len(samples_to_create)
 
     def load_and_save_recovery(
         self,
@@ -926,14 +802,12 @@ class Whoop247Data(Base247DataTemplate):
                     if health_score:
                         health_scores.append(health_score)
             except Exception as e:
-                db.rollback()
                 log_structured(
                     self.logger,
                     "warning",
                     f"Failed to save recovery data: {e}",
                     provider="whoop",
                     task="load_and_save_recovery",
-                    user_id=str(user_id),
                 )
 
         if health_scores:

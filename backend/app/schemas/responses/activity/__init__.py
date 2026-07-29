@@ -7,7 +7,6 @@ from .data_point_responses import (
 from .events import (
     Meal,
     Measurement,
-    MenstrualCycleRecord,
     SleepSession,
     Workout,
     WorkoutDetailed,
@@ -44,7 +43,6 @@ __all__ = [
     "WorkoutDetailed",
     "Meal",
     "Measurement",
-    "MenstrualCycleRecord",
     "SleepSession",
     # Summaries
     "ActivitySummary",

@@ -81,7 +81,7 @@ class PresignedURLService:
                 file_key=file_key,
                 expires_in=request.expiration_seconds,
                 max_file_size=request.max_file_size,
-                bucket=AWS_BUCKET_NAME,  # ty:ignore[invalid-argument-type]
+                bucket=AWS_BUCKET_NAME,
             )
 
         except ClientError as e:

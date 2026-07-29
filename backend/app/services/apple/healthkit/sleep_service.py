@@ -1,12 +1,11 @@
 import contextlib
 import json
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
 from logging import getLogger
 from uuid import UUID, uuid4
 
 from app.config import settings
-from app.constants.series_types.sdk import (
+from app.constants.series_types.apple import (
     SleepPhase,
     get_apple_sleep_phase,
 )
@@ -401,10 +400,10 @@ def _calculate_final_metrics(stages: list[SleepStateStage]) -> tuple[dict, list[
                 current_end = end
                 continue
 
-            if start < current_end:  # ty:ignore[unsupported-operator]
-                current_end = max(current_end, end)  # ty:ignore[invalid-argument-type]
+            if start < current_end:
+                current_end = max(current_end, end)
             else:
-                metrics["in_bed_seconds"] += (current_end - current_start).total_seconds()  # ty:ignore[unsupported-operator]
+                metrics["in_bed_seconds"] += (current_end - current_start).total_seconds()
                 current_start = start
                 current_end = end
 
@@ -486,10 +485,6 @@ def finish_sleep(db_session: DbSession, user_id: str, state: SleepState) -> None
     total_sleep_seconds = (
         metrics["sleeping_seconds"] + metrics["light_seconds"] + metrics["deep_seconds"] + metrics["rem_seconds"]
     )
-    time_in_bed_seconds = max(metrics["in_bed_seconds"], total_sleep_seconds + metrics["awake_seconds"])
-    sleep_efficiency = (
-        Decimal(str(total_sleep_seconds / time_in_bed_seconds * 100)) if time_in_bed_seconds > 0 else None
-    )
 
     sleep_record = EventRecordCreate(
         id=uuid4(),
@@ -510,12 +505,12 @@ def finish_sleep(db_session: DbSession, user_id: str, state: SleepState) -> None
     detail = EventRecordDetailCreate(
         record_id=sleep_record.id,
         sleep_total_duration_minutes=int(total_sleep_seconds // 60),
-        sleep_time_in_bed_minutes=int(time_in_bed_seconds // 60),
+        sleep_time_in_bed_minutes=int(metrics["in_bed_seconds"] // 60),
         sleep_deep_minutes=int(metrics["deep_seconds"] // 60),
         sleep_rem_minutes=int(metrics["rem_seconds"] // 60),
         sleep_light_minutes=int(metrics["light_seconds"] // 60),
         sleep_awake_minutes=int(metrics["awake_seconds"] // 60),
-        sleep_efficiency_score=sleep_efficiency,
+        sleep_efficiency_score=None,  # TODO: Implement efficiency score
         is_nap=False,  # TODO: Infer if nap, maybe from sleep length < 1 hour / 2 hours?
         sleep_stages=cleaned_stages or None,
     )

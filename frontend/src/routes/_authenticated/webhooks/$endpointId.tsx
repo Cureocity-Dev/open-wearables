@@ -65,9 +65,9 @@ function WebhookDetailPage() {
   if (endpoint.isLoading) {
     return (
       <div className="p-8">
-        <div className="rounded-2xl border border-border/60 bg-gradient-to-br from-card/80 to-card/40 backdrop-blur-xl p-6 animate-pulse space-y-3">
-          <div className="h-6 w-1/3 bg-muted rounded" />
-          <div className="h-32 bg-muted/50 rounded" />
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6 animate-pulse space-y-3">
+          <div className="h-6 w-1/3 bg-zinc-800 rounded" />
+          <div className="h-32 bg-zinc-800/50 rounded" />
         </div>
       </div>
     );
@@ -82,10 +82,8 @@ function WebhookDetailPage() {
             Back
           </Button>
         </Link>
-        <div className="rounded-2xl border border-border/60 bg-gradient-to-br from-card/80 to-card/40 backdrop-blur-xl p-8 text-center">
-          <p className="text-muted-foreground">
-            Webhook not found or failed to load.
-          </p>
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-8 text-center">
+          <p className="text-zinc-400">Webhook not found or failed to load.</p>
         </div>
       </div>
     );
@@ -104,10 +102,10 @@ function WebhookDetailPage() {
 
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
         <div className="min-w-0">
-          <h1 className="text-xl font-medium text-foreground truncate">
+          <h1 className="text-xl font-medium text-white truncate">
             {ep.description || 'Webhook endpoint'}
           </h1>
-          <code className="font-mono text-xs text-muted-foreground break-all">
+          <code className="font-mono text-xs text-zinc-500 break-all">
             {ep.url}
           </code>
         </div>
@@ -118,7 +116,7 @@ function WebhookDetailPage() {
           </Button>
           <Button
             variant="outline"
-            className="text-[hsl(var(--destructive-muted))] border-[hsl(var(--destructive-muted)/0.3)] hover:bg-[hsl(var(--destructive-muted)/0.1)]"
+            className="text-red-400 border-red-500/30 hover:bg-red-500/10"
             onClick={() => setIsDeleteOpen(true)}
           >
             <Trash2 className="h-4 w-4" />
@@ -137,18 +135,18 @@ function WebhookDetailPage() {
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
-          <div className="rounded-2xl border border-border/60 bg-gradient-to-br from-card/80 to-card/40 backdrop-blur-xl p-5 space-y-3">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
+          <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-5 space-y-3">
+            <p className="text-[10px] uppercase tracking-wide text-zinc-500 font-medium">
               Endpoint ID
             </p>
             <div className="flex items-center gap-2">
-              <code className="font-mono text-xs text-foreground/90 flex-1 break-all">
+              <code className="font-mono text-xs text-zinc-300 flex-1 break-all">
                 {ep.id}
               </code>
               <Button
                 variant="ghost"
                 size="sm"
-                className="shrink-0 h-7 w-7 p-0 text-muted-foreground hover:text-foreground/90"
+                className="shrink-0 h-7 w-7 p-0 text-zinc-500 hover:text-zinc-300"
                 onClick={() => {
                   navigator.clipboard.writeText(ep.id);
                   toast.success('Endpoint ID copied');
@@ -159,8 +157,8 @@ function WebhookDetailPage() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-border/60 bg-gradient-to-br from-card/80 to-card/40 backdrop-blur-xl p-5">
-            <h3 className="text-sm font-medium text-foreground mb-4">
+          <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-5">
+            <h3 className="text-sm font-medium text-white mb-4">
               Configuration
             </h3>
             <WebhookForm
@@ -278,7 +276,7 @@ function DeliveriesFilters({
   return (
     <div className="flex flex-wrap gap-3 items-center">
       <select
-        className="bg-card border border-border text-foreground/90 text-xs rounded-md px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
+        className="bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs rounded-md px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-zinc-600"
         value={params.status ?? ''}
         onChange={(e) =>
           onChange({
@@ -294,7 +292,7 @@ function DeliveriesFilters({
       </select>
 
       <select
-        className="bg-card border border-border text-foreground/90 text-xs rounded-md px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
+        className="bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs rounded-md px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-zinc-600"
         value={params.limit ?? 50}
         onChange={(e) => onChange({ limit: Number(e.target.value) })}
       >
@@ -310,7 +308,7 @@ function DeliveriesFilters({
         <button
           type="button"
           onClick={() => setEtOpen((o) => !o)}
-          className="flex items-center gap-1.5 bg-card border border-border text-foreground/90 text-xs rounded-md px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring hover:border-border-hover"
+          className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs rounded-md px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-zinc-600 hover:border-zinc-600"
         >
           {selected.size > 0 ? (
             <span className="text-indigo-400">
@@ -319,20 +317,20 @@ function DeliveriesFilters({
           ) : (
             'All event types'
           )}
-          <ChevronDown className="h-3 w-3 text-muted-foreground" />
+          <ChevronDown className="h-3 w-3 text-zinc-500" />
         </button>
 
         {etOpen && (
-          <div className="absolute z-20 top-full mt-1 left-0 w-72 bg-card border border-border rounded-lg shadow-xl overflow-hidden">
-            <div className="flex items-center justify-between px-3 py-2 border-b border-border/60">
-              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          <div className="absolute z-20 top-full mt-1 left-0 w-72 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
+              <span className="text-[10px] uppercase tracking-wide text-zinc-500">
                 Filter by event type
               </span>
               {selected.size > 0 && (
                 <button
                   type="button"
                   onClick={clearEventTypes}
-                  className="text-[10px] text-muted-foreground hover:text-foreground/90"
+                  className="text-[10px] text-zinc-500 hover:text-zinc-300"
                 >
                   Clear all
                 </button>
@@ -340,14 +338,12 @@ function DeliveriesFilters({
             </div>
             <div className="max-h-72 overflow-y-auto">
               {eventTypes.isLoading ? (
-                <p className="text-xs text-muted-foreground px-3 py-4">
-                  Loading…
-                </p>
+                <p className="text-xs text-zinc-500 px-3 py-4">Loading…</p>
               ) : (
                 eventTypes.data?.map((et) => (
                   <label
                     key={et.name}
-                    className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-muted cursor-pointer"
+                    className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-zinc-800 cursor-pointer"
                   >
                     <input
                       type="checkbox"
@@ -355,7 +351,7 @@ function DeliveriesFilters({
                       checked={selected.has(et.name)}
                       onChange={() => toggleEventType(et.name)}
                     />
-                    <span className="font-mono text-[11px] text-foreground/90">
+                    <span className="font-mono text-[11px] text-zinc-300">
                       {et.name}
                     </span>
                   </label>
@@ -363,7 +359,7 @@ function DeliveriesFilters({
               )}
             </div>
             {selected.size > 0 && (
-              <div className="px-3 py-2 border-t border-border/60 flex flex-wrap gap-1">
+              <div className="px-3 py-2 border-t border-zinc-800 flex flex-wrap gap-1">
                 {Array.from(selected).map((name) => (
                   <Badge
                     key={name}

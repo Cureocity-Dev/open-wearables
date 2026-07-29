@@ -529,7 +529,6 @@ class ProviderSettingFactory(BaseFactory):
 
     provider = "garmin"
     is_enabled = True
-    live_sync_mode = None
 
 
 class WorkoutDetailsFactory(BaseFactory):

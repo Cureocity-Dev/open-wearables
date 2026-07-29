@@ -28,4 +28,4 @@ class SamsungStrategy(BaseProviderStrategy):
     @property
     def capabilities(self) -> ProviderCapabilities:
         # Samsung Health data arrives exclusively via the mobile SDK (no cloud API).
-        return ProviderCapabilities(client_sdk=True)
+        return ProviderCapabilities(supports_sdk=True)

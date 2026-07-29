@@ -30,7 +30,7 @@ export function CursorPagination({
   }
 
   return (
-    <div className="pt-4 border-t border-border/60">
+    <div className="pt-4 border-t border-zinc-800">
       <Pagination>
         <PaginationContent>
           <PaginationItem>

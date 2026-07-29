@@ -89,8 +89,6 @@ export const queryKeys = {
       [...queryKeys.health.all, 'timeseries', userId, params] as const,
     dataSummary: (userId: string) =>
       [...queryKeys.health.all, 'dataSummary', userId] as const,
-    menstrualCycles: (userId: string, params?: unknown) =>
-      [...queryKeys.health.all, 'menstrualCycles', userId, params] as const,
   },
 
   connections: {
@@ -177,15 +175,5 @@ export const queryKeys = {
     messages: () => [...queryKeys.webhooks.all, 'messages'] as const,
     attempts: (id: string) =>
       [...queryKeys.webhooks.detail(id), 'attempts'] as const,
-  },
-
-  syncStatus: {
-    all: ['syncStatus'] as const,
-    recent: (userId: string, limit?: number) =>
-      [...queryKeys.syncStatus.all, 'recent', userId, limit] as const,
-    runs: (userId: string, limit?: number) =>
-      [...queryKeys.syncStatus.all, 'runs', userId, limit] as const,
-    allRuns: (filters?: Record<string, string | undefined>, limit?: number) =>
-      [...queryKeys.syncStatus.all, 'allRuns', filters ?? {}, limit] as const,
   },
 } as const;

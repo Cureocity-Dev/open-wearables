@@ -29,7 +29,6 @@ from .health_score import (
     HealthScoreUpdate,
     ScoreComponent,
 )
-from .menstrual_cycle import MenstrualCycleDetailCreate
 from .personal_record import (
     PersonalRecordBase,
     PersonalRecordCreate,
@@ -64,8 +63,6 @@ __all__ = [
     "PersonalRecordCreate",
     "PersonalRecordUpdate",
     "PersonalRecordResponse",
-    # MenstrualCycle
-    "MenstrualCycleDetailCreate",
     # Sleep
     "SleepStage",
     # HealthScore

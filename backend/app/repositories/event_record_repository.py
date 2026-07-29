@@ -77,55 +77,6 @@ class EventRecordRepository(
             .one_or_none()
         )
 
-    def get_by_external_id(
-        self,
-        db_session: DbSession,
-        user_id: UUID,
-        external_id: str,
-        source: str | None = None,
-        provider: str | None = None,
-    ) -> EventRecord | None:
-        """Find a single EventRecord by its provider-assigned external_id."""
-        query = (
-            db_session.query(self.model)
-            .join(DataSource, self.model.data_source_id == DataSource.id)
-            .filter(DataSource.user_id == user_id, self.model.external_id == external_id)
-        )
-        if source is not None:
-            query = query.filter(DataSource.source == source)
-        if provider is not None:
-            query = query.filter(DataSource.provider == provider)
-        return query.one_or_none()
-
-    def delete_by_external_id(
-        self,
-        db_session: DbSession,
-        user_id: UUID,
-        external_id: str,
-        source: str | None = None,
-        provider: str | None = None,
-    ) -> int:
-        """Delete EventRecord(s) matching external_id for a user in a single query.
-
-        Returns the number of rows deleted.
-        """
-        source_ids_query = db_session.query(DataSource.id).filter(DataSource.user_id == user_id)
-        if source is not None:
-            source_ids_query = source_ids_query.filter(DataSource.source == source)
-        if provider is not None:
-            source_ids_query = source_ids_query.filter(DataSource.provider == provider)
-
-        deleted = (
-            db_session.query(self.model)
-            .filter(
-                self.model.external_id == external_id,
-                self.model.data_source_id.in_(source_ids_query.scalar_subquery()),
-            )
-            .delete(synchronize_session=False)
-        )
-        db_session.commit()
-        return deleted
-
     @handle_exceptions
     def create(self, db_session: DbSession, creator: EventRecordCreate) -> EventRecord:
         data_source_id, creation = self._build_creation(db_session, creator)
@@ -329,7 +280,7 @@ class EventRecordRepository(
                 limit = query_params.limit or 20
                 results = query.limit(limit + 1).all()
                 # Reverse to get correct order
-                return list(reversed(results)), total_count  # ty:ignore[invalid-return-type]
+                return list(reversed(results)), total_count
 
             # Forward pagination: get items AFTER cursor
             if sort_by == "start_datetime":
@@ -353,7 +304,7 @@ class EventRecordRepository(
         if not query_params.cursor and query_params.offset:
             query = query.offset(query_params.offset)
 
-        return query.limit(limit + 1).all(), total_count  # ty:ignore[invalid-return-type]
+        return query.limit(limit + 1).all(), total_count
 
     def get_user_event_counts_by_provider(
         self, db_session: DbSession, user_id: UUID
@@ -471,11 +422,9 @@ class EventRecordRepository(
         # is_nap can be True, False, or NULL - we treat NULL as "not a nap"
         is_main_sleep = func.coalesce(SleepDetails.is_nap, False) == False  # noqa: E712
 
-        # Local calendar date the session ended (wake-up date) — mirrors score
-        # date logic in fill_missing_sleep_scores_task so chart, score, and
-        # session list all key on the same date.
+        # Local calendar date the session started — mirrors score date logic in fill_missing_sleep_scores_task.
         local_sleep_date = cast(
-            EventRecord.end_datetime + cast(func.coalesce(EventRecord.zone_offset, "+00:00"), Interval),
+            EventRecord.start_datetime + cast(func.coalesce(EventRecord.zone_offset, "+00:00"), Interval),
             Date,
         )
 
@@ -545,7 +494,7 @@ class EventRecordRepository(
             .filter(
                 DataSource.user_id == user_id,
                 EventRecord.category == "sleep",
-                EventRecord.end_datetime >= start_date - timedelta(days=1),
+                EventRecord.end_datetime >= start_date,
                 local_sleep_date >= cast(start_date, Date),
                 local_sleep_date < cast(end_date, Date),
             )
@@ -644,14 +593,9 @@ class EventRecordRepository(
         - workout_date, source, device_model
         - elevation_meters, distance_meters, energy_burned_kcal
         """
-        local_workout_date = cast(
-            self.model.end_datetime + cast(func.coalesce(self.model.zone_offset, "+00:00"), Interval),
-            Date,
-        )
-
         results = (
             db_session.query(
-                local_workout_date.label("workout_date"),
+                cast(self.model.end_datetime, Date).label("workout_date"),
                 DataSource.source,
                 DataSource.device_model,
                 # Sum elevation gain for all workouts on that day
@@ -667,16 +611,15 @@ class EventRecordRepository(
             .filter(
                 DataSource.user_id == user_id,
                 self.model.category == "workout",
-                self.model.end_datetime >= start_date - timedelta(days=1),
-                local_workout_date >= cast(start_date, Date),
-                local_workout_date < cast(end_date, Date),
+                self.model.end_datetime >= start_date,
+                cast(self.model.end_datetime, Date) < cast(end_date, Date),
             )
             .group_by(
-                local_workout_date,
+                cast(self.model.end_datetime, Date),
                 DataSource.source,
                 DataSource.device_model,
             )
-            .order_by(asc(local_workout_date))
+            .order_by(asc(cast(self.model.end_datetime, Date)))
             .all()
         )
 

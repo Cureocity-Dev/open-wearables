@@ -25,7 +25,7 @@ class UltrahumanStrategy(BaseProviderStrategy):
     @property
     def capabilities(self) -> ProviderCapabilities:
         # Ultrahuman Partner API is REST-only; no public webhook offering as of 2025.
-        return ProviderCapabilities(rest_pull=True)
+        return ProviderCapabilities(supports_pull=True)
 
     @property
     def name(self) -> str:

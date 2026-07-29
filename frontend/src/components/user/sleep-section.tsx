@@ -16,13 +16,11 @@ import {
   BedDouble,
   ChevronDown,
   ChevronUp,
-  Trash2,
 } from 'lucide-react';
 import {
   useSleepSessions,
   useSleepSummaries,
   useTimeSeries,
-  useDeleteSleepSession,
 } from '@/hooks/api/use-health';
 import { useCursorPagination } from '@/hooks/use-cursor-pagination';
 import { useDateRange, useAllTimeRange } from '@/hooks/use-date-range';
@@ -45,7 +43,6 @@ import {
   formatDuration,
   formatMinutes,
   formatBedtime,
-  parseApiDate,
 } from '@/lib/utils/format';
 import {
   calculateSleepStats,
@@ -64,7 +61,6 @@ import type {
   SleepStagesSummary,
   SleepSummary,
 } from '@/lib/api/types';
-import { EventDeleteDialog } from '@/components/common/event-delete-dialog';
 
 interface SleepSectionProps {
   userId: string;
@@ -97,8 +93,8 @@ const SLEEP_METRICS: SleepMetricDefinition[] = [
     label: 'Avg Efficiency',
     shortLabel: 'Efficiency',
     icon: Zap,
-    color: 'text-[hsl(var(--success-muted))]',
-    bgColor: 'bg-[hsl(var(--success-muted)/0.1)]',
+    color: 'text-emerald-400',
+    bgColor: 'bg-emerald-500/10',
     glowColor: 'shadow-[0_0_15px_rgba(16,185,129,0.5)]',
     getValue: (stats) => stats.avgEfficiency,
     formatValue: (v) => (v !== null ? `${Math.round(v)}%` : '-'),
@@ -132,7 +128,7 @@ function SleepStagesBar({
 
   if (stageData.length === 0) {
     return (
-      <div className={`h-2 bg-muted-foreground/40 rounded-full ${className}`}>
+      <div className={`h-2 bg-zinc-700 rounded-full ${className}`}>
         <div className="h-full w-full bg-zinc-600 rounded-full" />
       </div>
     );
@@ -140,7 +136,7 @@ function SleepStagesBar({
 
   return (
     <div
-      className={`h-2 bg-muted-foreground/40 rounded-full overflow-hidden flex ${className}`}
+      className={`h-2 bg-zinc-700 rounded-full overflow-hidden flex ${className}`}
     >
       {stageData.map(
         (stage) =>
@@ -174,8 +170,6 @@ function SleepSessionRow({
   userId: string;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [showDelete, setShowDelete] = useState(false);
-  const deleteSleep = useDeleteSleepSession(userId);
 
   // Fetch heart rate time series data when expanded
   const { data: hrData, isLoading: hrLoading } = useTimeSeries(userId, {
@@ -199,7 +193,7 @@ function SleepSessionRow({
   const hasDetails = true;
 
   return (
-    <div className="border border-border/60 rounded-lg overflow-hidden bg-card/30 hover:bg-card/40 transition-colors">
+    <div className="border border-zinc-800 rounded-lg overflow-hidden bg-zinc-900/30 hover:bg-zinc-900/50 transition-colors">
       {/* Main row - always visible */}
       <button
         onClick={() => hasDetails && setIsExpanded(!isExpanded)}
@@ -210,7 +204,7 @@ function SleepSessionRow({
         <div className="w-28 flex-shrink-0">
           <div className="flex items-center gap-1">
             {session.is_nap && (
-              <span className="text-[10px] font-medium px-1.5 py-0.5 bg-[hsl(var(--warning-muted)/0.15)] text-[hsl(var(--warning-muted))] rounded">
+              <span className="text-[10px] font-medium px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded">
                 NAP
               </span>
             )}
@@ -219,11 +213,11 @@ function SleepSessionRow({
             )}
           </div>
           <div className="flex items-center gap-2">
-            <p className="text-sm font-medium text-foreground">
+            <p className="text-sm font-medium text-white">
               {format(new Date(session.end_time), 'EEE, MMM d')}
             </p>
           </div>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-zinc-500">
             {format(new Date(session.end_time), 'yyyy')}
           </p>
         </div>
@@ -237,14 +231,14 @@ function SleepSessionRow({
           <div className="flex items-center justify-around">
             {/* Efficiency */}
             <div className="flex items-center gap-2">
-              <Zap className="h-4 w-4 text-[hsl(var(--success-muted))]" />
+              <Zap className="h-4 w-4 text-emerald-400" />
               <div>
-                <p className="text-sm font-medium text-foreground">
+                <p className="text-sm font-medium text-white">
                   {session.efficiency_percent !== null
                     ? `${Math.round(session.efficiency_percent)}%`
                     : '-'}
                 </p>
-                <p className="text-xs text-muted-foreground">Efficiency</p>
+                <p className="text-xs text-zinc-500">Efficiency</p>
               </div>
             </div>
 
@@ -252,12 +246,12 @@ function SleepSessionRow({
             <div className="flex items-center gap-2">
               <Moon className="h-4 w-4 text-indigo-400" />
               <div>
-                <p className="text-sm font-medium text-foreground">
+                <p className="text-sm font-medium text-white">
                   {session.sleep_duration_seconds !== null
                     ? formatDuration(session.sleep_duration_seconds)
                     : '-'}
                 </p>
-                <p className="text-xs text-muted-foreground">Duration</p>
+                <p className="text-xs text-zinc-500">Duration</p>
               </div>
             </div>
 
@@ -265,40 +259,32 @@ function SleepSessionRow({
             <div className="flex items-center gap-2">
               <BedDouble className="h-4 w-4 text-purple-400" />
               <div>
-                <p className="text-sm font-medium text-foreground">
+                <p className="text-sm font-medium text-white">
                   {formatDuration(session.duration_seconds)}
                 </p>
-                <p className="text-xs text-muted-foreground">Time in Bed</p>
+                <p className="text-xs text-zinc-500">Time in Bed</p>
               </div>
             </div>
 
             {/* Bedtime */}
-            <div className="flex items-center gap-2 w-32">
-              <Clock className="h-4 w-4 text-sky-400 flex-shrink-0" />
+            <div className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-sky-400" />
               <div>
-                <p className="text-sm font-medium text-foreground">
-                  {(() => {
-                    const start = new Date(session.start_time);
-                    const end = new Date(session.end_time);
-                    const overnight =
-                      start.getFullYear() !== end.getFullYear() ||
-                      start.getMonth() !== end.getMonth() ||
-                      start.getDate() !== end.getDate();
-                    return format(start, overnight ? 'EEE h:mm a' : 'h:mm a');
-                  })()}
+                <p className="text-sm font-medium text-white">
+                  {format(new Date(session.start_time), 'h:mm a')}
                 </p>
-                <p className="text-xs text-muted-foreground">Bedtime</p>
+                <p className="text-xs text-zinc-500">Bedtime</p>
               </div>
             </div>
 
             {/* Wake Time */}
             <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-[hsl(var(--warning-muted))]" />
+              <Clock className="h-4 w-4 text-amber-400" />
               <div>
-                <p className="text-sm font-medium text-foreground">
+                <p className="text-sm font-medium text-white">
                   {format(new Date(session.end_time), 'h:mm a')}
                 </p>
-                <p className="text-xs text-muted-foreground">Wake</p>
+                <p className="text-xs text-zinc-500">Wake</p>
               </div>
             </div>
           </div>
@@ -308,9 +294,9 @@ function SleepSessionRow({
         {hasDetails && (
           <div className="w-8 flex-shrink-0 flex justify-end ml-2">
             {isExpanded ? (
-              <ChevronUp className="h-5 w-5 text-muted-foreground" />
+              <ChevronUp className="h-5 w-5 text-zinc-400" />
             ) : (
-              <ChevronDown className="h-5 w-5 text-muted-foreground" />
+              <ChevronDown className="h-5 w-5 text-zinc-400" />
             )}
           </div>
         )}
@@ -318,10 +304,10 @@ function SleepSessionRow({
 
       {/* Expanded details */}
       {isExpanded && (
-        <div className="px-4 pb-4 pt-2 border-t border-border/60 space-y-4">
+        <div className="px-4 pb-4 pt-2 border-t border-zinc-800 space-y-4">
           {/* Heart Rate During Sleep Chart */}
           <div>
-            <h4 className="text-xs font-medium text-muted-foreground mb-3 uppercase tracking-wider">
+            <h4 className="text-xs font-medium text-zinc-400 mb-3 uppercase tracking-wider">
               Heart Rate During Sleep
             </h4>
             {hrLoading ? (
@@ -370,7 +356,7 @@ function SleepSessionRow({
                 </LineChart>
               </ChartContainer>
             ) : (
-              <p className="text-xs text-muted-foreground text-center py-4">
+              <p className="text-xs text-zinc-500 text-center py-4">
                 No heart rate data available for this session
               </p>
             )}
@@ -378,7 +364,7 @@ function SleepSessionRow({
 
           {/* Detail Fields */}
           {detailFields.length > 0 && (
-            <div className="flex gap-6 pt-2 border-t border-border/40">
+            <div className="flex gap-6 pt-2 border-t border-zinc-800/50">
               {/* Left column */}
               <div className="flex-1 space-y-2">
                 {detailFields
@@ -388,10 +374,10 @@ function SleepSessionRow({
                       key={field.label}
                       className="flex items-center justify-between py-1"
                     >
-                      <span className="text-sm text-muted-foreground">
+                      <span className="text-sm text-zinc-500">
                         {field.label}
                       </span>
-                      <span className="text-sm font-medium text-foreground">
+                      <span className="text-sm font-medium text-white">
                         {field.value}
                       </span>
                     </div>
@@ -399,7 +385,7 @@ function SleepSessionRow({
               </div>
 
               {/* Divider */}
-              <div className="w-px bg-muted" />
+              <div className="w-px bg-zinc-800" />
 
               {/* Right column */}
               <div className="flex-1 space-y-2">
@@ -410,10 +396,10 @@ function SleepSessionRow({
                       key={field.label}
                       className="flex items-center justify-between py-1"
                     >
-                      <span className="text-sm text-muted-foreground">
+                      <span className="text-sm text-zinc-500">
                         {field.label}
                       </span>
-                      <span className="text-sm font-medium text-foreground">
+                      <span className="text-sm font-medium text-white">
                         {field.value}
                       </span>
                     </div>
@@ -421,32 +407,8 @@ function SleepSessionRow({
               </div>
             </div>
           )}
-
-          {/* Delete button */}
-          <div className="flex justify-end pt-2 border-t border-border/40">
-            <button
-              onClick={() => setShowDelete(true)}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-[hsl(var(--destructive-muted))] transition-colors"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Delete sleep session
-            </button>
-          </div>
         </div>
       )}
-
-      <EventDeleteDialog
-        open={showDelete}
-        title="Delete sleep session?"
-        description="This sleep session and all associated data (stages, scores) will be permanently removed. This cannot be undone."
-        isPending={deleteSleep.isPending}
-        onClose={() => setShowDelete(false)}
-        onConfirm={() =>
-          deleteSleep.mutate(session.id, {
-            onSuccess: () => setShowDelete(false),
-          })
-        }
-      />
     </div>
   );
 }
@@ -458,11 +420,11 @@ function SleepSectionSkeleton() {
       {[1, 2, 3, 4].map((i) => (
         <div
           key={i}
-          className="p-4 border border-border/60 rounded-lg bg-card/30"
+          className="p-4 border border-zinc-800 rounded-lg bg-zinc-900/30"
         >
-          <div className="h-5 w-5 bg-muted rounded animate-pulse mb-3" />
-          <div className="h-7 w-20 bg-muted rounded animate-pulse mb-1" />
-          <div className="h-4 w-24 bg-muted/50 rounded animate-pulse" />
+          <div className="h-5 w-5 bg-zinc-800 rounded animate-pulse mb-3" />
+          <div className="h-7 w-20 bg-zinc-800 rounded animate-pulse mb-1" />
+          <div className="h-4 w-24 bg-zinc-800/50 rounded animate-pulse" />
         </div>
       ))}
     </div>
@@ -475,24 +437,24 @@ function SessionsListSkeleton() {
       {[1, 2, 3, 4, 5].map((i) => (
         <div
           key={i}
-          className="px-4 py-3 border border-border/60 rounded-lg bg-card/30"
+          className="px-4 py-3 border border-zinc-800 rounded-lg bg-zinc-900/30"
         >
           <div className="flex items-center">
             <div className="w-28 flex-shrink-0">
-              <div className="h-5 w-20 bg-muted rounded animate-pulse" />
-              <div className="h-3 w-12 bg-muted/50 rounded animate-pulse mt-1" />
+              <div className="h-5 w-20 bg-zinc-800 rounded animate-pulse" />
+              <div className="h-3 w-12 bg-zinc-800/50 rounded animate-pulse mt-1" />
             </div>
             <div className="flex-1 flex items-center justify-around">
               {[1, 2, 3].map((j) => (
                 <div key={j} className="flex items-center gap-2">
-                  <div className="h-4 w-4 bg-muted rounded animate-pulse" />
+                  <div className="h-4 w-4 bg-zinc-800 rounded animate-pulse" />
                   <div>
-                    <div className="h-4 w-12 bg-muted rounded animate-pulse" />
-                    <div className="h-3 w-10 bg-muted/50 rounded animate-pulse mt-1" />
+                    <div className="h-4 w-12 bg-zinc-800 rounded animate-pulse" />
+                    <div className="h-3 w-10 bg-zinc-800/50 rounded animate-pulse mt-1" />
                   </div>
                 </div>
               ))}
-              <div className="w-24 h-2 bg-muted rounded-full animate-pulse" />
+              <div className="w-24 h-2 bg-zinc-800 rounded-full animate-pulse" />
             </div>
           </div>
         </div>
@@ -565,12 +527,9 @@ export function SleepSection({
     if (summaries.length === 0) return [];
 
     return [...summaries]
-      .sort(
-        (a, b) =>
-          parseApiDate(a.date).getTime() - parseApiDate(b.date).getTime()
-      )
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
       .map((s) => ({
-        date: format(parseApiDate(s.date), 'MMM d'),
+        date: format(new Date(s.date), 'MMM d'),
         value: currentMetric.getChartValue(s),
       }));
   }, [sleepSummaries, currentMetric]);
@@ -578,7 +537,7 @@ export function SleepSection({
   return (
     <div className="space-y-6">
       {/* Summary Section */}
-      <div className="rounded-2xl border border-border/60 bg-gradient-to-br from-card/80 to-card/40 backdrop-blur-xl overflow-hidden">
+      <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl overflow-hidden">
         <SectionHeader
           title="Sleep Summary"
           dateRange={dateRange}
@@ -589,7 +548,7 @@ export function SleepSection({
           {summaryLoading ? (
             <SleepSectionSkeleton />
           ) : !stats ? (
-            <p className="text-sm text-muted-foreground text-center py-4">
+            <p className="text-sm text-zinc-500 text-center py-4">
               No sleep data in this period
             </p>
           ) : (
@@ -633,8 +592,8 @@ export function SleepSection({
 
               {/* Dynamic Chart for Selected Metric */}
               {chartData.length > 1 && (
-                <div className="pt-4 border-t border-border/60">
-                  <h4 className="text-sm font-medium text-foreground mb-4">
+                <div className="pt-4 border-t border-zinc-800">
+                  <h4 className="text-sm font-medium text-white mb-4">
                     Daily {currentMetric.shortLabel}
                   </h4>
                   <ChartContainer
@@ -695,8 +654,8 @@ export function SleepSection({
 
               {/* Sleep Stages Breakdown */}
               {stats.stages && stats.stagesTotal > 0 && (
-                <div className="p-4 border border-border/60 rounded-lg bg-card/30">
-                  <h4 className="text-xs font-medium text-muted-foreground mb-4 uppercase tracking-wider">
+                <div className="p-4 border border-zinc-800 rounded-lg bg-zinc-900/30">
+                  <h4 className="text-xs font-medium text-zinc-400 mb-4 uppercase tracking-wider">
                     Average Sleep Stages
                   </h4>
                   <div className="space-y-4">
@@ -719,10 +678,10 @@ export function SleepSection({
                               <div
                                 className={`w-3 h-3 rounded-sm ${SLEEP_STAGE_COLORS[stage as SleepStageKey]}`}
                               />
-                              <span className="text-xs text-foreground/90">
+                              <span className="text-xs text-zinc-300">
                                 {SLEEP_STAGE_LABELS[stage as SleepStageKey]}
                               </span>
-                              <span className="text-xs text-muted-foreground ml-auto">
+                              <span className="text-xs text-zinc-500 ml-auto">
                                 {Math.round(percent)}%
                               </span>
                             </div>
@@ -739,12 +698,12 @@ export function SleepSection({
       </div>
 
       {/* Sleep Sessions Section */}
-      <div className="rounded-2xl border border-border/60 bg-gradient-to-br from-card/80 to-card/40 backdrop-blur-xl overflow-hidden">
+      <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl overflow-hidden">
         <SectionHeader
           title="Sleep Sessions"
           rightContent={
             !sessionsLoading && hasData ? (
-              <span className="text-xs text-muted-foreground">
+              <span className="text-xs text-zinc-500">
                 Page {pagination.currentPage}
               </span>
             ) : undefined
@@ -755,7 +714,7 @@ export function SleepSection({
           {sessionsLoading ? (
             <SessionsListSkeleton />
           ) : displayedSessions.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">
+            <p className="text-sm text-zinc-500 text-center py-8">
               No sleep sessions available
             </p>
           ) : (

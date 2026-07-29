@@ -56,7 +56,7 @@ backend/app/config.py                           # Add OAuth credentials
 |----------|-------|----------|----------|---------|
 | Garmin | Yes (PKCE) | Yes | No | PULL + PUSH |
 | Polar | Yes | Yes | No | PULL |
-| Suunto | Yes | Yes | Yes | PULL + PUSH |
+| Suunto | Yes | Yes | Yes | PULL |
 | Whoop | Yes | No | Yes | PULL |
 | Apple | No | Yes | No | PUSH only |
 

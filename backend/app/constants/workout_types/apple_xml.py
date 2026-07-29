@@ -24,7 +24,7 @@ HEALTHKIT_WORKOUT_TYPE_MAPPINGS: list[tuple[str, WorkoutType]] = [
     ("HKWorkoutActivityTypeMixedCardio", WorkoutType.CARDIO_TRAINING),
     ("HKWorkoutActivityTypeHighIntensityIntervalTraining", WorkoutType.CARDIO_TRAINING),
     ("HKWorkoutActivityTypeStepTraining", WorkoutType.AEROBICS),
-    ("HKWorkoutActivityTypeFitnessGaming", WorkoutType.GAMING),
+    ("HKWorkoutActivityTypeFitnessGaming", WorkoutType.OTHER),
     ("HKWorkoutActivityTypePreparationAndRecovery", WorkoutType.STRETCHING),
     ("HKWorkoutActivityTypeFlexibility", WorkoutType.STRETCHING),
     ("HKWorkoutActivityTypeCooldown", WorkoutType.STRETCHING),
@@ -40,11 +40,11 @@ HEALTHKIT_WORKOUT_TYPE_MAPPINGS: list[tuple[str, WorkoutType]] = [
     ("HKWorkoutActivityTypeAustralianFootball", WorkoutType.FOOTBALL),
     ("HKWorkoutActivityTypeBaseball", WorkoutType.BASEBALL),
     ("HKWorkoutActivityTypeBasketball", WorkoutType.BASKETBALL),
-    ("HKWorkoutActivityTypeCricket", WorkoutType.CRICKET),
-    ("HKWorkoutActivityTypeDiscSports", WorkoutType.DISC_SPORTS),
+    ("HKWorkoutActivityTypeCricket", WorkoutType.OTHER),
+    ("HKWorkoutActivityTypeDiscSports", WorkoutType.OTHER),
     ("HKWorkoutActivityTypeHandball", WorkoutType.HANDBALL),
     ("HKWorkoutActivityTypeHockey", WorkoutType.HOCKEY),
-    ("HKWorkoutActivityTypeLacrosse", WorkoutType.LACROSSE),
+    ("HKWorkoutActivityTypeLacrosse", WorkoutType.OTHER),
     ("HKWorkoutActivityTypeRugby", WorkoutType.RUGBY),
     ("HKWorkoutActivityTypeSoccer", WorkoutType.SOCCER),
     ("HKWorkoutActivityTypeSoftball", WorkoutType.BASEBALL),
@@ -52,23 +52,23 @@ HEALTHKIT_WORKOUT_TYPE_MAPPINGS: list[tuple[str, WorkoutType]] = [
     # Racket Sports
     ("HKWorkoutActivityTypeBadminton", WorkoutType.BADMINTON),
     ("HKWorkoutActivityTypePickleball", WorkoutType.PICKLEBALL),
-    ("HKWorkoutActivityTypeRacquetball", WorkoutType.RACQUETBALL),
+    ("HKWorkoutActivityTypeRacquetball", WorkoutType.OTHER),
     ("HKWorkoutActivityTypeSquash", WorkoutType.SQUASH),
     ("HKWorkoutActivityTypeTableTennis", WorkoutType.TABLE_TENNIS),
     ("HKWorkoutActivityTypeTennis", WorkoutType.TENNIS),
     # Outdoor Activities
     ("HKWorkoutActivityTypeClimbing", WorkoutType.ROCK_CLIMBING),
     ("HKWorkoutActivityTypeEquestrianSports", WorkoutType.HORSEBACK_RIDING),
-    ("HKWorkoutActivityTypeFishing", WorkoutType.FISHING),
+    ("HKWorkoutActivityTypeFishing", WorkoutType.OTHER),
     ("HKWorkoutActivityTypeGolf", WorkoutType.GOLF),
     ("HKWorkoutActivityTypeHiking", WorkoutType.HIKING),
-    ("HKWorkoutActivityTypeHunting", WorkoutType.HUNTING),
-    ("HKWorkoutActivityTypePlay", WorkoutType.PLAY),
+    ("HKWorkoutActivityTypeHunting", WorkoutType.OTHER),
+    ("HKWorkoutActivityTypePlay", WorkoutType.OTHER),
     # Snow and Ice Sports
     ("HKWorkoutActivityTypeCrossCountrySkiing", WorkoutType.CROSS_COUNTRY_SKIING),
-    ("HKWorkoutActivityTypeCurling", WorkoutType.CURLING),
+    ("HKWorkoutActivityTypeCurling", WorkoutType.OTHER),
     ("HKWorkoutActivityTypeDownhillSkiing", WorkoutType.ALPINE_SKIING),
-    ("HKWorkoutActivityTypeSnowSports", WorkoutType.SNOW_SPORTS),
+    ("HKWorkoutActivityTypeSnowSports", WorkoutType.OTHER),
     ("HKWorkoutActivityTypeSnowboarding", WorkoutType.SNOWBOARDING),
     ("HKWorkoutActivityTypeSkatingSports", WorkoutType.ICE_SKATING),
     # Water Activities
@@ -79,8 +79,8 @@ HEALTHKIT_WORKOUT_TYPE_MAPPINGS: list[tuple[str, WorkoutType]] = [
     ("HKWorkoutActivityTypeSwimming", WorkoutType.SWIMMING),
     ("HKWorkoutActivityTypeUnderwaterDiving", WorkoutType.DIVING),
     ("HKWorkoutActivityTypeWaterFitness", WorkoutType.SWIMMING),
-    ("HKWorkoutActivityTypeWaterPolo", WorkoutType.WATER_POLO),
-    ("HKWorkoutActivityTypeWaterSports", WorkoutType.WATER_SPORTS),
+    ("HKWorkoutActivityTypeWaterPolo", WorkoutType.OTHER),
+    ("HKWorkoutActivityTypeWaterSports", WorkoutType.OTHER),
     # Martial Arts
     ("HKWorkoutActivityTypeBoxing", WorkoutType.BOXING),
     ("HKWorkoutActivityTypeKickboxing", WorkoutType.BOXING),
@@ -88,9 +88,9 @@ HEALTHKIT_WORKOUT_TYPE_MAPPINGS: list[tuple[str, WorkoutType]] = [
     ("HKWorkoutActivityTypeTaiChi", WorkoutType.MARTIAL_ARTS),
     ("HKWorkoutActivityTypeWrestling", WorkoutType.MARTIAL_ARTS),
     # Individual Sports
-    ("HKWorkoutActivityTypeArchery", WorkoutType.ARCHERY),
-    ("HKWorkoutActivityTypeBowling", WorkoutType.BOWLING),
-    ("HKWorkoutActivityTypeFencing", WorkoutType.FENCING),
+    ("HKWorkoutActivityTypeArchery", WorkoutType.OTHER),
+    ("HKWorkoutActivityTypeBowling", WorkoutType.OTHER),
+    ("HKWorkoutActivityTypeFencing", WorkoutType.OTHER),
     ("HKWorkoutActivityTypeGymnastics", WorkoutType.FITNESS_EQUIPMENT),
     ("HKWorkoutActivityTypeTrackAndField", WorkoutType.RUNNING),
     # Multisport Activities
@@ -101,7 +101,7 @@ HEALTHKIT_WORKOUT_TYPE_MAPPINGS: list[tuple[str, WorkoutType]] = [
     ("HKWorkoutActivityTypeDanceInspiredTraining", WorkoutType.DANCE),
     ("HKWorkoutActivityTypeMixedMetabolicCardioTraining", WorkoutType.CARDIO_TRAINING),
     # Other
-    ("HKWorkoutActivityTypeOther", WorkoutType.GENERIC),
+    ("HKWorkoutActivityTypeOther", WorkoutType.OTHER),
 ]
 
 
@@ -129,7 +129,7 @@ def get_unified_workout_type(healthkit_activity_type: str) -> WorkoutType:
         >>> get_unified_workout_type("HKWorkoutActivityTypeYoga")
         WorkoutType.YOGA
         >>> get_unified_workout_type("HKWorkoutActivityTypeOther")
-        WorkoutType.GENERIC
+        WorkoutType.OTHER
     Note:
         Some deprecated types are still supported for backward compatibility:
         - HKWorkoutActivityTypeDance

@@ -100,12 +100,12 @@ def oauth_callback(
     # Controlled by HISTORICAL_SYNC_ON_CONNECT (default: true).
     if settings.historical_sync_on_connect:
         caps = strategy.capabilities
-        if caps.webhook_callback:
+        if caps.supports_async_export:
             # this code is going to be removed later, so leave inner imports heres
             from app.integrations.celery.tasks import start_garmin_full_backfill
 
             start_garmin_full_backfill.delay(str(oauth_state.user_id))
-        elif caps.rest_pull:
+        elif caps.supports_pull:
             from app.integrations.celery.tasks import sync_vendor_data
 
             now = datetime.now(timezone.utc)
@@ -175,17 +175,19 @@ def get_providers(
 
 
 @router.put("/providers/{provider}", response_model=ProviderSettingRead, tags=["Internal: Providers"])
-def update_provider_setting(
+def update_provider_status(
     provider: str,
     update: ProviderSettingUpdate,
     db: DbSession,
     _developer: DeveloperDep,
 ):
-    """Update is_enabled and/or live_sync_mode for a single provider."""
+    """
+    Update single provider enabled status.
+    """
     try:
-        return settings_service.update_provider_setting(db, provider, update)
+        return settings_service.update_provider_status(db, provider, update)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.put("/providers", response_model=list[ProviderSettingRead], tags=["Internal: Providers"])

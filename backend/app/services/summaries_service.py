@@ -5,7 +5,7 @@ from logging import Logger, getLogger
 from uuid import UUID
 
 from app.database import DbSession
-from app.models import DataPointSeries, EventRecord, HealthScore, ProviderPriority, User
+from app.models import DataPointSeries, EventRecord, ProviderPriority, User
 from app.repositories import EventRecordRepository, ProviderPriorityRepository
 from app.repositories.archival_repository import (
     ArchivalSettingRepository,
@@ -17,7 +17,6 @@ from app.repositories.data_point_series_repository import (
     IntensityMinutesResult,
 )
 from app.repositories.device_type_priority_repository import DeviceTypePriorityRepository
-from app.repositories.health_score_repository import HealthScoreRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.enums import (
     ProviderName,
@@ -34,7 +33,6 @@ from app.schemas.responses.activity import (
     BodySummary,
     HeartRateStats,
     IntensityMinutes,
-    RecoverySummary,
     SleepStagesSummary,
     SleepSummary,
 )
@@ -53,12 +51,9 @@ from app.utils.pagination import (
 from app.utils.structured_logging import log_structured
 
 # Series types needed for sleep physiological metrics
+# TODO: Add HRV, respiratory rate, and SpO2 when ready
 SLEEP_PHYSIO_SERIES_TYPES = [
     SeriesType.heart_rate,
-    SeriesType.heart_rate_variability_sdnn,
-    SeriesType.heart_rate_variability_rmssd,
-    SeriesType.respiratory_rate,
-    SeriesType.oxygen_saturation,
 ]
 
 # Activity summary constants
@@ -85,7 +80,6 @@ BODY_SLOW_CHANGING_SERIES = [
 BODY_AVERAGED_SERIES = [
     SeriesType.resting_heart_rate,
     SeriesType.heart_rate_variability_sdnn,
-    SeriesType.heart_rate_variability_rmssd,
 ]
 
 # Default settings for body summary
@@ -103,7 +97,6 @@ class SummariesService:
         self.user_repo = UserRepository(User)
         self.archival_settings_repo = ArchivalSettingRepository()
         self.archive_repo = DataPointSeriesArchiveRepository()
-        self.health_score_repo = HealthScoreRepository(HealthScore)
 
     def _filter_by_priority(
         self,
@@ -314,11 +307,9 @@ class SummariesService:
                     awake_minutes=result.get("awake_minutes"),
                 )
 
+            # Fetch average heart rate during the sleep period
+            # TODO: Add HRV, respiratory rate, and SpO2 when ready
             avg_hr: int | None = None
-            avg_hrv_sdnn: float | None = None
-            avg_hrv_rmssd: float | None = None
-            avg_respiratory_rate: float | None = None
-            avg_spo2_percent: float | None = None
 
             sleep_start = result.get("min_start_time")
             sleep_end = result.get("max_end_time")
@@ -333,15 +324,11 @@ class SummariesService:
                     )
                     hr_avg = physio_averages.get(SeriesType.heart_rate)
                     avg_hr = int(round(hr_avg)) if hr_avg is not None else None
-                    avg_hrv_sdnn = physio_averages.get(SeriesType.heart_rate_variability_sdnn)
-                    avg_hrv_rmssd = physio_averages.get(SeriesType.heart_rate_variability_rmssd)
-                    avg_respiratory_rate = physio_averages.get(SeriesType.respiratory_rate)
-                    avg_spo2_percent = physio_averages.get(SeriesType.oxygen_saturation)
                 except Exception as e:
                     log_structured(
                         self.logger,
                         "warning",
-                        f"Failed to fetch physiological metrics for sleep: {e}",
+                        f"Failed to fetch heart rate metrics for sleep: {e}",
                         sleep_start=sleep_start,
                         sleep_end=sleep_end,
                     )
@@ -358,79 +345,12 @@ class SummariesService:
                 nap_count=result.get("nap_count"),
                 nap_duration_minutes=result.get("nap_duration_minutes"),
                 avg_heart_rate_bpm=avg_hr,
-                avg_hrv_sdnn_ms=avg_hrv_sdnn,
-                avg_hrv_rmssd_ms=avg_hrv_rmssd,
-                avg_respiratory_rate=avg_respiratory_rate,
-                avg_spo2_percent=avg_spo2_percent,
+                # TODO: Implement these when ready
+                avg_hrv_sdnn_ms=None,
+                avg_respiratory_rate=None,
+                avg_spo2_percent=None,
             )
             data.append(summary)
-
-        return PaginatedResponse(
-            data=data,
-            pagination=Pagination(
-                has_more=has_more,
-                next_cursor=next_cursor,
-                previous_cursor=previous_cursor,
-            ),
-            metadata=TimeseriesMetadata(
-                sample_count=len(data),
-                start_time=start_date,
-                end_time=end_date,
-            ),
-        )
-
-    @handle_exceptions
-    def get_recovery_summaries(
-        self,
-        db_session: DbSession,
-        user_id: UUID,
-        start_date: datetime,
-        end_date: datetime,
-        cursor: str | None,
-        limit: int,
-    ) -> PaginatedResponse[RecoverySummary]:
-        """Get daily recovery summaries from HealthScore(RECOVERY) records.
-
-        Metrics come from the components JSONB stored alongside the recovery score:
-        resting_heart_rate, hrv_rmssd_milli, spo2_percentage.
-        """
-        results = self.health_score_repo.get_recovery_summaries(
-            db_session, user_id, start_date, end_date, cursor, limit
-        )
-
-        results = self._filter_by_priority(db_session, user_id, results, date_key="recovery_date")
-
-        has_more = len(results) > limit
-        if has_more:
-            results = results[:limit]
-
-        next_cursor: str | None = None
-        previous_cursor: str | None = None
-
-        if results:
-            last_result = results[-1]
-            if has_more:
-                next_cursor = encode_cursor(last_result["recorded_at"], last_result["record_id"], "next")
-
-            if cursor:
-                first_result = results[0]
-                previous_cursor = encode_cursor(first_result["recorded_at"], first_result["record_id"], "prev")
-
-        data = [
-            RecoverySummary(
-                date=r["recovery_date"],
-                source=SourceMetadata(provider=r["source"] or "unknown", device=r.get("device_model")),
-                sleep_duration_seconds=None,
-                sleep_efficiency_percent=None,
-                resting_heart_rate_bpm=int(r["resting_heart_rate"])
-                if r.get("resting_heart_rate") is not None
-                else None,
-                avg_hrv_sdnn_ms=float(r["hrv_rmssd_milli"]) if r.get("hrv_rmssd_milli") is not None else None,
-                avg_spo2_percent=float(r["spo2_percentage"]) if r.get("spo2_percentage") is not None else None,
-                recovery_score=r.get("recovery_score"),
-            )
-            for r in results
-        ]
 
         return PaginatedResponse(
             data=data,
@@ -794,21 +714,17 @@ class SummariesService:
         )
 
         resting_hr_data = vitals_aggregates.get(SeriesType.resting_heart_rate)
-        hrv_sdnn_data = vitals_aggregates.get(SeriesType.heart_rate_variability_sdnn)
-        hrv_rmssd_data = vitals_aggregates.get(SeriesType.heart_rate_variability_rmssd)
+        hrv_data = vitals_aggregates.get(SeriesType.heart_rate_variability_sdnn)
 
         resting_hr_avg = resting_hr_data.get("avg") if resting_hr_data else None
         resting_hr = int(round(resting_hr_avg)) if resting_hr_avg else None
-        hrv_sdnn_raw = hrv_sdnn_data.get("avg") if hrv_sdnn_data else None
-        hrv_sdnn_avg = round(hrv_sdnn_raw, 1) if hrv_sdnn_raw is not None else None
-        hrv_rmssd_raw = hrv_rmssd_data.get("avg") if hrv_rmssd_data else None
-        hrv_rmssd_avg = round(hrv_rmssd_raw, 1) if hrv_rmssd_raw is not None else None
+        hrv_avg = hrv_data.get("avg") if hrv_data else None
+        avg_hrv = round(hrv_avg, 1) if hrv_avg else None
 
         body_averaged = BodyAveraged(
             period_days=average_period_days,
             resting_heart_rate_bpm=resting_hr,
-            avg_hrv_sdnn_ms=hrv_sdnn_avg,
-            avg_hrv_rmssd_ms=hrv_rmssd_avg,
+            avg_hrv_sdnn_ms=avg_hrv,
             period_start=period_start,
             period_end=period_end,
         )
@@ -858,10 +774,10 @@ class SummariesService:
 
         # Check if we have any data at all
         has_slow_changing = any([weight_kg, height_cm, body_fat_pct, muscle_mass_kg])
-        has_averaged = any([resting_hr, hrv_sdnn_avg, hrv_rmssd_avg])
+        has_averaged = any([resting_hr, avg_hrv])
         has_latest = any([body_temp_celsius, skin_temp_celsius, blood_pressure])
 
-        if not (has_slow_changing or has_averaged or has_latest):
+        if not has_slow_changing and not has_averaged and not has_latest:
             return None
 
         body_latest = BodyLatest(

@@ -4,7 +4,6 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from .sleep import SleepStage
-from .zones import HRZones, PowerZones
 
 
 class EventRecordDetailBase(BaseModel):
@@ -22,7 +21,6 @@ class EventRecordDetailBase(BaseModel):
     max_watts: Decimal | None = None
 
     average_speed: Decimal | None = None
-    average_cadence: Decimal | None = None
     average_watts: Decimal | None = None
 
     moving_time_seconds: int | None = None
@@ -42,10 +40,6 @@ class EventRecordDetailBase(BaseModel):
     is_nap: bool | None = None
 
     sleep_stages: list[SleepStage] | None = None
-
-    segments: list[dict] | None = None
-    hr_zones: HRZones | None = None
-    power_zones: PowerZones | None = None
 
 
 class EventRecordDetailCreate(EventRecordDetailBase):

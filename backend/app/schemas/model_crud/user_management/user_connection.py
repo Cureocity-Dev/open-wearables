@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.auth import ConnectionStatus, LiveSyncMode
+from app.schemas.auth import ConnectionStatus
 
 
 class UserConnectionBase(BaseModel):
@@ -65,9 +65,4 @@ class UserConnectionWithCapabilities(UserConnectionRead):
     """
 
     max_historical_days: int | None = None
-    rest_pull: bool = False
-    webhook_stream: bool = False
-    webhook_ping: bool = False
-    webhook_callback: bool = False
-    live_sync_mode: LiveSyncMode | None = None
-    linked_user_ids: list[UUID] = Field(default_factory=list)
+    supports_pull: bool = False

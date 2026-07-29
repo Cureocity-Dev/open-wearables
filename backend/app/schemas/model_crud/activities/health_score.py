@@ -36,7 +36,6 @@ class HealthScoreCreate(HealthScoreBase):
     user_id: UUID
     data_source_id: UUID | None = None
     provider: ProviderName
-    sleep_record_id: UUID | None = None
 
 
 class HealthScoreUpdate(HealthScoreBase): ...

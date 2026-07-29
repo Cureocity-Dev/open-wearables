@@ -125,7 +125,7 @@ class TestOAuthAuthorizeEndpoint:
         )
 
         # Assert - Should fail because apple doesn't have OAuth
-        assert response.status_code in [400, 401, 422]
+        assert response.status_code in [400, 422]
 
 
 class TestOAuthProvidersEndpoint:
@@ -341,20 +341,19 @@ class TestOAuthUpdateProviderEndpoint:
         )
 
         # Assert
-        assert response.status_code == 400
+        assert response.status_code == 404
 
-    def test_update_live_sync_mode_non_configurable_provider(
+    def test_update_provider_invalid_payload(
         self,
         client: TestClient,
         db: Session,
         mock_external_apis: dict[str, MagicMock],
     ) -> None:
-        """Test setting live_sync_mode on a provider that does not support it returns 400."""
+        """Test updating provider with invalid payload."""
         # Arrange
         developer = DeveloperFactory()
         headers = developer_auth_headers(developer.id)
-        # garmin has no rest_pull so live_sync_configurable=False
-        update_data = {"live_sync_mode": "webhook"}
+        update_data = {}  # Missing is_enabled
 
         # Act
         response = client.put(
