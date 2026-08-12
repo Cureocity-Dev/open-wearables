@@ -110,12 +110,12 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: ${VITE_API_URL:?Set VITE_API_URL in your environment}
+        VITE_API_URL: ${VITE_API_URL:-https://open-wearable-backend.cureo.city}
     container_name: frontend__open-wearables
     image: open-wearables-frontend:latest
     pull_policy: never
     environment:
-      - VITE_API_URL=https://dev.open-wearable-backend.cureo.city
+      - VITE_API_URL=https://open-wearable-backend.cureo.city
     ports:
       - "${FRONTEND_PORT:-6006}:3000"
     depends_on:
