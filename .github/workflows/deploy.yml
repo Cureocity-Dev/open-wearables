@@ -50,6 +50,20 @@ jobs:
               echo "Warning: /home/ubuntu/wearable.env not found. Created from example."
             fi
 
+            # Diagnostics for the "port already allocated" failure: show what
+            # actually resolves for host port bindings and what's already
+            # bound on the host before we touch anything. Remove once the
+            # root cause of the port collision is confirmed.
+            echo "--- Resolved compose port bindings ---"
+            docker compose config | grep -B4 "published:" || true
+            echo "--- Root .env in project dir (affects \${VAR} substitution) ---"
+            cat .env 2>/dev/null || echo "no root .env file"
+            echo "--- REDIS_PORT in current shell env ---"
+            env | grep -i REDIS_PORT || echo "REDIS_PORT not set in shell env"
+            echo "--- What's already listening on 6379 ---"
+            ss -ltn | grep 6379 || echo "nothing listening on 6379 via ss"
+            docker ps -a --format '{{.Names}}: {{.Ports}}' | grep 6379 || echo "no container publishing 6379"
+
             # Stop and remove existing containers first so host ports are
             # released and no stale container lingers before recreate.
             docker compose down --remove-orphans
