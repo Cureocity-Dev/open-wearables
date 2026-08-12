@@ -41,12 +41,12 @@ jobs:
             echo "Checked out commit: $(git rev-parse --short HEAD)"
 
             # Handle .env file (copy from /home/ubuntu/wearable.env)
-            if [ -f /home/ubuntu/wearable.env ]; then
-              cp /home/ubuntu/wearable.env backend/config/.env
-              echo "Updated backend/config/.env from /home/ubuntu/wearable.env"
+            if [ -f /home/ubuntu/wearables.env ]; then
+              cp /home/ubuntu/wearables.env backend/config/.env
+              echo "Updated backend/config/.env from /home/ubuntu/wearables.env"
             elif [ ! -f backend/config/.env ]; then
               cp backend/config/.env.example backend/config/.env
-              echo "Warning: /home/ubuntu/wearable.env not found. Created from example."
+              echo "Warning: /home/ubuntu/wearables.env not found. Created from example."
             fi
 
             # Diagnostics for the "port already allocated" failure: show what
