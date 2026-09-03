@@ -202,7 +202,7 @@ def handle_sleep_data(
     Process SDK sleep data and track sleep sessions using Redis state.
 
     Sleep sessions are tracked in Redis and automatically finalized to the database when
-    a gap of more than 2 hours (configurable) is detected between consecutive sleep records.
+    the configured gap is detected between consecutive sleep records.
 
     A per-user Redis lock serializes concurrent calls so that parallel Celery tasks
     (e.g. from a bulk historical upload) accumulate stages into the same session instead
@@ -224,7 +224,7 @@ def handle_sleep_data(
         - Deduplicate incoming data based on start/end/stage/source
         - If no active session exists: Create new session in Redis (only for valid start states)
         - If active session exists: Check gap between new sample and the session window
-          * Gap > 2 hours: Finalize existing session, start new one
+          * Gap > configured threshold: Finalize existing session, start new one
           * Otherwise: Accumulate sleep stage durations in existing session
         - Persist state once after the whole batch; dispatch the stale-sleep task
     """
