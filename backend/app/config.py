@@ -84,7 +84,7 @@ class Settings(BaseSettings):
     sleep_end_gap_minutes: int = 0
 
     # SYNC SETTINGS
-    sync_interval_seconds: int = 3600  # Default: 1 hour (3600 seconds)
+    sync_interval_seconds: int = 900  # Default: 15 minutes; previously 1 hour (3600 seconds)
     sleep_sync_interval_seconds: int = 3600  # Default: 1 hour (3600 seconds)
     # Grace-period flag: auto-dispatch historical sync after OAuth connect (default: true).
     # Pre-0.4.2 behaviour. Set to false once your integration calls /sync/historical explicitly.
