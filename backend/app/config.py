@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     redis_sleep_ttl_seconds: int = 24 * 3600  # 24 hours
 
     # Finalize sleep immediately so syncing does not wait for the previous 120-minute (2-hour) gap.
-    sleep_end_gap_minutes: int = 0
+    sleep_end_gap_minutes: int = 30
 
     # SYNC SETTINGS
     sync_interval_seconds: int = 900  # Default: 15 minutes; previously 1 hour (3600 seconds)
