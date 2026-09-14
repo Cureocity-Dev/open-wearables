@@ -114,7 +114,24 @@ def process_sdk_upload(
             db, content, content_type, user_id, batch_id=batch_id
         ).model_dump()
 
-        # Log processing completion with results
+        status_code = result.get("status_code", 200)
+        incoming_records = int(result.get("incoming_records", 0) or 0)
+        incoming_workouts = int(result.get("incoming_workouts", 0) or 0)
+        incoming_sleep = int(result.get("incoming_sleep", 0) or 0)
+        records_saved = int(result.get("records_saved", 0) or 0)
+        workouts_saved = int(result.get("workouts_saved", 0) or 0)
+        sleep_saved = int(result.get("sleep_saved", 0) or 0)
+        items_processed = records_saved + workouts_saved + sleep_saved
+        sync_metadata = {
+            "batch_id": batch_id,
+            "incoming_records": incoming_records,
+            "incoming_workouts": incoming_workouts,
+            "incoming_sleep": incoming_sleep,
+            "records_saved": records_saved,
+            "workouts_saved": workouts_saved,
+            "sleep_saved": sleep_saved,
+        }
+
         log_structured(
             logger,
             "info",
@@ -123,19 +140,15 @@ def process_sdk_upload(
             batch_id=batch_id,
             user_id=user_id,
             provider=provider,
-            status_code=result.get("status_code"),
+            status_code=status_code,
             response=result.get("response"),
-            # Include counts from result if available
-            records_saved=result.get("records_saved", 0),
-            workouts_saved=result.get("workouts_saved", 0),
-            sleep_saved=result.get("sleep_saved", 0),
+            incoming_records=incoming_records,
+            incoming_workouts=incoming_workouts,
+            incoming_sleep=incoming_sleep,
+            records_saved=records_saved,
+            workouts_saved=workouts_saved,
+            sleep_saved=sleep_saved,
         )
-
-        status_code = result.get("status_code", 200)
-        records_saved = int(result.get("records_saved", 0) or 0)
-        workouts_saved = int(result.get("workouts_saved", 0) or 0)
-        sleep_saved = int(result.get("sleep_saved", 0) or 0)
-        items_total = records_saved + workouts_saved + sleep_saved
 
         if isinstance(status_code, int) and 200 <= status_code < 300:
             completed(
@@ -144,14 +157,12 @@ def process_sdk_upload(
                 SyncSource.SDK,
                 run_id=batch_id,
                 status=SyncStatus.SUCCESS,
-                message=f"{provider.capitalize()} batch saved",
-                items_processed=items_total,
-                metadata={
-                    "batch_id": batch_id,
-                    "records_saved": records_saved,
-                    "workouts_saved": workouts_saved,
-                    "sleep_saved": sleep_saved,
-                },
+                message=(
+                    f"{provider.capitalize()} batch saved - "
+                    f"{records_saved} records, {workouts_saved} workouts, {sleep_saved} sleep sessions"
+                ),
+                items_processed=items_processed,
+                metadata=sync_metadata,
             )
         else:
             failed(
@@ -160,8 +171,9 @@ def process_sdk_upload(
                 SyncSource.SDK,
                 run_id=batch_id,
                 error=str(result.get("response", "Unknown error")),
-                message=f"{provider.capitalize()} batch failed",
-                metadata={"batch_id": batch_id, "status_code": status_code},
+                message=f"{provider.capitalize()} batch failed after {items_processed} writes",
+                items_processed=items_processed,
+                metadata={**sync_metadata, "status_code": status_code},
             )
 
         return {**result, "batch_id": batch_id}

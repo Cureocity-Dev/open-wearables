@@ -282,22 +282,19 @@ class ImportService:
 
             # Bulk create time series samples
             if time_series_samples:
-                self.timeseries_service.bulk_create_samples(db_session, time_series_samples)
-                records_saved += len(time_series_samples)
+                records_saved += int(self.timeseries_service.bulk_create_samples(db_session, time_series_samples))
 
         # Process time series samples (records)
         samples = self._build_statistic_bundles(request, user_id)
         if samples:
-            self.timeseries_service.bulk_create_samples(db_session, samples)
-            records_saved += len(samples)
+            records_saved += int(self.timeseries_service.bulk_create_samples(db_session, samples))
 
-        # Commit all workout and timeseries changes in one transaction
-        db_session.commit()
-
-        # Process sleep (count sleep segments from input)
+        # Process sleep before committing so an unexpected processing error
+        # cannot leave workouts or time-series rows partially committed.
         if request.data.sleep:
-            handle_sleep_data(db_session, request, user_id)
-            sleep_saved = len(request.data.sleep)
+            sleep_saved = handle_sleep_data(db_session, request, user_id)
+
+        db_session.commit()
 
         return {
             "workouts_saved": workouts_saved,
@@ -313,6 +310,12 @@ class ImportService:
         user_id: str,
         batch_id: str | None = None,
     ) -> UploadDataResponse:
+        provider = "unknown"
+        incoming_records = 0
+        incoming_workouts = 0
+        incoming_sleep = 0
+        saved_counts = {"records_saved": 0, "workouts_saved": 0, "sleep_saved": 0}
+
         try:
             # Parse content based on type
             if "multipart/form-data" in content_type:
@@ -363,6 +366,7 @@ class ImportService:
             )
 
         except Exception as e:
+            db_session.rollback()
             log_structured(
                 self.log,
                 "error",
@@ -377,9 +381,25 @@ class ImportService:
                 status_code=400,
                 response=f"Import failed: {str(e)}",
                 user_id=user_id,
+                incoming_records=incoming_records,
+                incoming_workouts=incoming_workouts,
+                incoming_sleep=incoming_sleep,
+                records_saved=saved_counts["records_saved"],
+                workouts_saved=saved_counts["workouts_saved"],
+                sleep_saved=saved_counts["sleep_saved"],
             )
 
-        return UploadDataResponse(status_code=200, response="Import successful", user_id=user_id)
+        return UploadDataResponse(
+            status_code=200,
+            response="Import successful",
+            user_id=user_id,
+            incoming_records=incoming_records,
+            incoming_workouts=incoming_workouts,
+            incoming_sleep=incoming_sleep,
+            records_saved=saved_counts["records_saved"],
+            workouts_saved=saved_counts["workouts_saved"],
+            sleep_saved=saved_counts["sleep_saved"],
+        )
 
     def _parse_multipart_content(self, content: str) -> dict | None:
         """Parse multipart form data to extract JSON."""

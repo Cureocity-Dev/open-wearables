@@ -4,6 +4,7 @@ Integration tests for Apple SDK (HealthKit) data import.
 Tests the full import flow for Apple HealthKit data via SDK.
 """
 
+import json
 import logging
 from decimal import Decimal
 from typing import Any
@@ -141,6 +142,67 @@ class TestAppleSDKImport:
                 ],
             },
         }
+
+    def test_import_response_includes_received_and_saved_counts(
+        self,
+        db: Session,
+        import_service: ImportService,
+        sample_sdk_payload: dict[str, Any],
+    ) -> None:
+        """The Celery task needs these counts to populate the sync log."""
+        user = UserFactory()
+
+        with patch("app.services.apple.healthkit.import_service.handle_sleep_data", return_value=1):
+            result = import_service.import_data_from_request(
+                db,
+                json.dumps(sample_sdk_payload),
+                "application/json",
+                str(user.id),
+                batch_id="test-batch",
+            )
+
+        assert result.status_code == 200
+        assert result.incoming_records == 1
+        assert result.incoming_workouts == 1
+        assert result.incoming_sleep == 1
+        assert result.records_saved is not None
+        assert result.records_saved > 0
+        assert result.workouts_saved == 1
+        assert result.sleep_saved == 1
+
+    def test_import_error_preserves_known_counts(
+        self,
+        db: Session,
+        import_service: ImportService,
+        sample_sdk_payload: dict[str, Any],
+    ) -> None:
+        """Failures after persistence still report the writes already completed."""
+        user = UserFactory()
+        saved_counts = {"records_saved": 4, "workouts_saved": 1, "sleep_saved": 1}
+
+        with (
+            patch.object(import_service, "load_data", return_value=saved_counts),
+            patch.object(
+                import_service.user_connection_repo,
+                "get_by_user_and_provider",
+                side_effect=RuntimeError("connection update failed"),
+            ),
+        ):
+            result = import_service.import_data_from_request(
+                db,
+                json.dumps(sample_sdk_payload),
+                "application/json",
+                str(user.id),
+                batch_id="test-batch",
+            )
+
+        assert result.status_code == 400
+        assert result.incoming_records == 1
+        assert result.incoming_workouts == 1
+        assert result.incoming_sleep == 1
+        assert result.records_saved == 4
+        assert result.workouts_saved == 1
+        assert result.sleep_saved == 1
 
     def test_import_workout_with_statistics(
         self,
