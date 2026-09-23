@@ -8,6 +8,10 @@ on:
   # -> pick any branch. github.ref_name below resolves to that branch.
   workflow_dispatch:
 
+permissions:
+  id-token: write # required to mint the OIDC token for AssumeRoleWithWebIdentity
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -15,60 +19,113 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@v1.0.3
+      # Port 22 on the UAT box is locked down to Jenkins' static IP, so a
+      # GitHub-hosted runner (no fixed IP) can never reach it over SSH.
+      # Deploy via SSM Run Command instead - no inbound access needed at all.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          host: ${{ secrets.UAT_IP }}
-          username: ${{ secrets.UAT_USER }}
-          key: ${{ secrets.UAT_SSH_KEY }}
-          script: |
-            # Fail the deploy if any command fails (previously a failed
-            # git pull was silently ignored, so stale code kept building).
-            set -euo pipefail
+          role-to-assume: arn:aws:iam::845021709999:role/github-actions-open-wearables-uat-deploy
+          aws-region: ap-south-1
 
-            # Navigate to project directory
-            mkdir -p ~/open-wearables
-            cd ~/open-wearables
+      - name: Deploy to EC2 via SSM
+        env:
+          INSTANCE_ID: i-074862024a4719e67
+          GH_REPOSITORY: ${{ github.repository }}
+          GH_REF_NAME: ${{ github.ref_name }}
+          GH_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
 
-            # If not a git repo, clone it
-            if [ ! -d .git ]; then
-              git clone git@github-wearable:${{ github.repository }}.git .
-            fi
+          cat > /tmp/deploy.sh <<'SCRIPT'
+          # Fail the deploy if any command fails (previously a failed
+          # git pull was silently ignored, so stale code kept building).
+          set -euo pipefail
 
-            # Force the checkout to exactly match the pushed branch. A plain
-            # `git pull` aborts on a dirty/diverged tree, leaving old source on
-            # disk. fetch + hard reset guarantees the build uses the new code.
-            git fetch origin ${{ github.ref_name }}
-            git reset --hard origin/${{ github.ref_name }}
-            git clean -ffd
-            echo "Checked out commit: $(git rev-parse --short HEAD)"
+          # Navigate to project directory
+          mkdir -p ~/open-wearables
+          cd ~/open-wearables
 
-            # Handle .env file (copy from /home/ec2-user/wearable.env)
-            if [ -f /home/ec2-user/wearable.env ]; then
-              cp /home/ec2-user/wearable.env backend/config/.env
-              echo "Updated backend/config/.env from /home/ec2-user/wearable.env"
-            elif [ ! -f backend/config/.env ]; then
-              cp backend/config/.env.example backend/config/.env
-              echo "Warning: /home/ec2-user/wearable.env not found. Created from example."
-            fi
+          # If not a git repo, clone it
+          if [ ! -d .git ]; then
+            git clone git@github-wearable:__GH_REPOSITORY__.git .
+          fi
 
-            # Stop and remove existing containers first so host ports are
-            # released and no stale container lingers before recreate.
-            docker compose down --remove-orphans
+          # Force the checkout to exactly match the pushed branch. A plain
+          # `git pull` aborts on a dirty/diverged tree, leaving old source on
+          # disk. fetch + hard reset guarantees the build uses the new code.
+          git fetch origin __GH_REF_NAME__
+          git reset --hard origin/__GH_REF_NAME__
+          git clean -ffd
+          echo "Checked out commit: $(git rev-parse --short HEAD)"
 
-            # Rebuild images (code changes invalidate the COPY layer, so
-            # normal cache is fine and fast). Builds app + frontend; the shared
-            # open-wearables-platform:latest image is produced by the app build.
-            docker compose build
+          # Handle .env file (copy from /home/ec2-user/wearable.env)
+          if [ -f /home/ec2-user/wearable.env ]; then
+            cp /home/ec2-user/wearable.env backend/config/.env
+            echo "Updated backend/config/.env from /home/ec2-user/wearable.env"
+          elif [ ! -f backend/config/.env ]; then
+            cp backend/config/.env.example backend/config/.env
+            echo "Warning: /home/ec2-user/wearable.env not found. Created from example."
+          fi
 
-            # Clean restart. --force-recreate recreates EVERY container — without
-            # it, worker/beat/flower keep the old container (they share the
-            # :latest image with no build section, so compose thinks they are
-            # unchanged and skips them, leaving stale code running).
-            docker compose up -d --force-recreate --remove-orphans
+          # Stop and remove existing containers first so host ports are
+          # released and no stale container lingers before recreate.
+          docker compose down --remove-orphans
 
-            # Drop dangling images left by the rebuild.
-            docker image prune -f
+          # Rebuild images (code changes invalidate the COPY layer, so
+          # normal cache is fine and fast). Builds app + frontend; the shared
+          # open-wearables-platform:latest image is produced by the app build.
+          docker compose build
 
-            # Show resulting state in the deploy log.
-            docker compose ps
+          # Clean restart. --force-recreate recreates EVERY container — without
+          # it, worker/beat/flower keep the old container (they share the
+          # :latest image with no build section, so compose thinks they are
+          # unchanged and skips them, leaving stale code running).
+          docker compose up -d --force-recreate --remove-orphans
+
+          # Drop dangling images left by the rebuild.
+          docker image prune -f
+
+          # Show resulting state in the deploy log.
+          docker compose ps
+          SCRIPT
+
+          # Substitute the GitHub context values (kept out of the heredoc's
+          # interpolation so the script is one plain literal, easy to eyeball).
+          sed -i "s|__GH_REPOSITORY__|${GH_REPOSITORY}|g; s|__GH_REF_NAME__|${GH_REF_NAME}|g" /tmp/deploy.sh
+
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=$(jq -Rs '[.]' /tmp/deploy.sh)" \
+            --comment "GitHub Actions deploy ${GH_SHA}" \
+            --query 'Command.CommandId' --output text)
+
+          echo "SSM command id: $COMMAND_ID"
+
+          for i in $(seq 1 180); do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
+              --query 'Status' --output text 2>/dev/null || echo "Pending")
+            echo "[$i] Status: $STATUS"
+            case "$STATUS" in
+              Success)
+                aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
+                  --query 'StandardOutputContent' --output text
+                exit 0
+                ;;
+              Failed|Cancelled|TimedOut)
+                echo "--- stdout ---"
+                aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
+                  --query 'StandardOutputContent' --output text
+                echo "--- stderr ---"
+                aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
+                  --query 'StandardErrorContent' --output text
+                exit 1
+                ;;
+            esac
+            sleep 10
+          done
+
+          echo "Timed out waiting for the SSM command to finish"
+          exit 1
