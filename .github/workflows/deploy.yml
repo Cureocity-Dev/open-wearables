@@ -38,6 +38,15 @@ jobs:
           set -euo pipefail
 
           cat > /tmp/deploy.sh <<'SCRIPT'
+          # SSM Run Command executes this as root with no $HOME. The real
+          # checkout at /home/ec2-user/open-wearables is owned by ec2-user,
+          # and only ec2-user has the SSH deploy key for the github-wearable
+          # host alias - running the actual deploy as root would hit "dial
+          # ... dubious ownership" and a missing-SSH-key clone failure
+          # without ever touching Docker. Run the real work as ec2-user.
+          set -euo pipefail
+
+          cat > /tmp/ow-deploy-inner.sh <<'INNER'
           # Fail the deploy if any command fails (previously a failed
           # git pull was silently ignored, so stale code kept building).
           set -euo pipefail
@@ -88,6 +97,12 @@ jobs:
 
           # Show resulting state in the deploy log.
           docker compose ps
+          INNER
+
+          chown ec2-user:ec2-user /tmp/ow-deploy-inner.sh
+          chmod +x /tmp/ow-deploy-inner.sh
+          su - ec2-user -c /tmp/ow-deploy-inner.sh
+          rm -f /tmp/ow-deploy-inner.sh
           SCRIPT
 
           # Substitute the GitHub context values (kept out of the heredoc's
