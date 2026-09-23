@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - uat-deploy
+  # Manual runs from the GitHub UI: Actions -> "Deploy to EC2" -> Run workflow
+  # -> pick any branch. github.ref_name below resolves to that branch.
+  workflow_dispatch:
 
 jobs:
   deploy:
