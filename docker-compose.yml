@@ -1,21 +1,4 @@
 services:
-  db:
-    image: postgres:18
-    container_name: postgres__open-wearables
-    environment:
-      POSTGRES_DB: open-wearables
-      POSTGRES_USER: open-wearables
-      POSTGRES_PASSWORD: open-wearables
-    ports:
-      - "${DB_PORT:-5432}:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U open-wearables -d open-wearables"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    volumes:
-      - postgres_data:/var/lib/postgresql
-
   app:
     build:
         context: ./backend
@@ -27,13 +10,10 @@ services:
     env_file:
       - ./backend/config/.env
     environment:
-      - DB_HOST=db
       - REDIS_HOST=redis
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "${API_PORT:-6002}:8000"
     depends_on:
-      db:
-        condition: service_healthy
       redis:
         condition: service_started
     develop:
@@ -65,11 +45,9 @@ services:
     env_file:
       - ./backend/config/.env
     environment:
-      - DB_HOST=db
       - REDIS_HOST=redis
     depends_on:
       - redis
-      - db
       - app
     develop:
       watch:
@@ -88,11 +66,9 @@ services:
     env_file:
       - ./backend/config/.env
     environment:
-      - DB_HOST=db
       - REDIS_HOST=redis
     depends_on:
       - redis
-      - db
       - app
     develop:
       watch:
@@ -111,13 +87,11 @@ services:
     env_file:
       - ./backend/config/.env
     environment:
-      - DB_HOST=db
       - REDIS_HOST=redis
     ports:
-      - "${FLOWER_PORT:-5555}:5555"
+      - "${FLOWER_PORT:-6003}:5555"
     depends_on:
       - redis
-      - db
       - app
     develop:
       watch:
@@ -130,10 +104,11 @@ services:
   redis:
     container_name: redis__open-wearables
     image: redis:8
+    # Host port 6004 (not 6379) avoids colliding with the host's own redis.
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "${REDIS_PORT:-6004}:6379"
     volumes:
-      - redis_data:/data
+      - redis_data:/var/lib/redis/data
 
   svix-server:
     container_name: svix-server__open-wearables
@@ -150,15 +125,12 @@ services:
     env_file:
       - ./backend/config/.env
     environment:
-      SVIX_DB_DSN: "postgresql://${DB_USER:-open-wearables}:${DB_PASSWORD:-open-wearables}@${DB_HOST:-db}:${DB_PORT:-5432}/svix"
       SVIX_QUEUE_TYPE: "redis"
       SVIX_REDIS_DSN: "redis://redis:6379/1"
       SVIX_CACHE_TYPE: "redis"
     ports:
-      - "${SVIX_PORT:-8071}:8071"
+      - "${SVIX_PORT:-6005}:8071"
     depends_on:
-      db:
-        condition: service_healthy
       redis:
         condition: service_started
       app:
@@ -178,8 +150,10 @@ services:
     container_name: frontend__open-wearables
     image: open-wearables-frontend:dev
     pull_policy: never
+    environment:
+      - VITE_API_URL=https://dev.open-wearable-backend.cureo.city
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "${FRONTEND_PORT:-6006}:3000"
     depends_on:
       - app
     develop:
@@ -199,5 +173,4 @@ services:
     restart: on-failure
 
 volumes:
-  postgres_data:
   redis_data:
