@@ -104,6 +104,7 @@ class TestFinalizeStaleSleepsTask:
         mock_finish_sleep.assert_any_call(db, user_id, mock_sleep_state)
         mock_finish_sleep.assert_any_call(db, user_id, whoop_state)
 
+    @patch("app.integrations.celery.tasks.finalize_stale_sleep_task.settings.sleep_end_gap_minutes", 60)
     @patch("app.integrations.celery.tasks.finalize_stale_sleep_task.finish_sleep")
     @patch("app.integrations.celery.tasks.finalize_stale_sleep_task.load_sleep_states")
     @patch("app.integrations.celery.tasks.finalize_stale_sleep_task.get_redis_client")
