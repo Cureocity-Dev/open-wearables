@@ -460,6 +460,40 @@ class TestFinishSleep:
 
     @patch("app.services.apple.healthkit.sleep_service.event_record_service")
     @patch("app.services.apple.healthkit.sleep_service.delete_sleep_state")
+    def test_unknown_source_only_merges_with_unknown_source(
+        self,
+        mock_delete_state: MagicMock,
+        mock_event_service: MagicMock,
+        db: Session,
+    ) -> None:
+        """Missing source metadata must not disable the adjacent-source filter."""
+        user_id = str(uuid4())
+        mock_event_service.create.return_value = MagicMock(id=uuid4())
+        mock_event_service.find_adjacent_sleep_record.return_value = None
+        state = SleepState(
+            uuid=str(uuid4()),
+            source_name="unknown",
+            provider="apple",
+            start_time=_dt("2026-03-15T23:00:00Z"),
+            end_time=_dt("2026-03-16T01:00:00Z"),
+            last_start_timestamp=_dt("2026-03-15T23:00:00Z"),
+            last_end_timestamp=_dt("2026-03-16T01:00:00Z"),
+            stages=[
+                SleepStateStage(
+                    stage=SleepStageType.SLEEPING,
+                    start_time=_dt("2026-03-15T23:00:00Z"),
+                    end_time=_dt("2026-03-16T01:00:00Z"),
+                )
+            ],
+        )
+
+        finish_sleep(db, user_id, state)
+
+        assert mock_event_service.find_adjacent_sleep_record.call_args.kwargs["source"] == "unknown"
+        assert mock_event_service.create.call_args.args[1].source == "unknown"
+
+    @patch("app.services.apple.healthkit.sleep_service.event_record_service")
+    @patch("app.services.apple.healthkit.sleep_service.delete_sleep_state")
     def test_finish_sleep_with_detailed_stages(
         self,
         mock_delete_state: MagicMock,
@@ -549,7 +583,8 @@ class TestHandleSleepDataIntegration:
         user_id = str(uuid4())
 
         mock_redis = MagicMock()
-        mock_redis.get.return_value = None  # No existing state
+        mock_redis.get.return_value = None  # No legacy state
+        mock_redis.hvals.return_value = []
         mock_redis_func.return_value = mock_redis
 
         mock_record = MagicMock()
@@ -563,14 +598,14 @@ class TestHandleSleepDataIntegration:
 
         # Sleep state should be saved to Redis (session not yet finalized —
         # that happens via finalize_stale_sleeps.delay())
-        assert mock_redis.set.called
+        assert mock_redis.hset.called
 
         # The finalize task should be dispatched
         mock_finalize.delay.assert_called_once()
 
-        # Verify saved state: grab the last set() call's value
-        last_set_call = mock_redis.set.call_args_list[-1]
-        state_json = last_set_call[0][1]  # second positional arg
+        # Verify saved state: grab the last hset() call's value
+        last_set_call = mock_redis.hset.call_args_list[-1]
+        state_json = last_set_call[0][2]
         state = SleepState.model_validate_json(state_json)
 
         # sleeping_seconds should be populated, NOT deep_seconds
@@ -600,6 +635,7 @@ class TestHandleSleepDataIntegration:
 
         mock_redis = MagicMock()
         mock_redis.get.return_value = None
+        mock_redis.hvals.return_value = []
         mock_redis_func.return_value = mock_redis
 
         mock_record = MagicMock()
@@ -612,8 +648,8 @@ class TestHandleSleepDataIntegration:
         handle_sleep_data(db, request, user_id)
 
         # Verify saved state
-        last_set_call = mock_redis.set.call_args_list[-1]
-        state = SleepState.model_validate_json(last_set_call[0][1])
+        last_set_call = mock_redis.hset.call_args_list[-1]
+        state = SleepState.model_validate_json(last_set_call[0][2])
 
         assert state.sleeping_seconds == 0
         assert state.deep_seconds > 0
@@ -627,6 +663,126 @@ class TestHandleSleepDataIntegration:
         assert SleepStageType.LIGHT in stage_types
         assert SleepStageType.REM in stage_types
         assert SleepStageType.AWAKE in stage_types
+
+    @patch("app.integrations.celery.tasks.finalize_stale_sleep_task.finalize_stale_sleeps")
+    @patch("app.services.apple.healthkit.sleep_service.event_record_service")
+    @patch("app.services.apple.healthkit.sleep_service.get_redis_client")
+    def test_overlapping_sources_create_separate_sleep_sessions(
+        self,
+        mock_redis_func: MagicMock,
+        mock_event_service: MagicMock,
+        mock_finalize: MagicMock,
+        db: Session,
+    ) -> None:
+        """WHOOP and Apple Watch samples from HealthKit must not share a session."""
+        user_id = str(uuid4())
+        payload = {
+            "provider": "apple",
+            "sdkVersion": "1.0.0",
+            "syncTimestamp": "2026-03-11T13:28:04Z",
+            "data": {
+                "records": [],
+                "workouts": [],
+                "sleep": [
+                    {
+                        "id": "WHOOP-1",
+                        "stage": "sleeping",
+                        "startDate": "2026-03-10T22:00:00Z",
+                        "endDate": "2026-03-11T06:00:00Z",
+                        "source": {"name": "WHOOP"},
+                    },
+                    {
+                        "id": "WATCH-1",
+                        "stage": "light",
+                        "startDate": "2026-03-10T22:15:00Z",
+                        "endDate": "2026-03-11T00:00:00Z",
+                        "source": {"name": "Apple Watch"},
+                    },
+                    {
+                        "id": "WATCH-2",
+                        "stage": "deep",
+                        "startDate": "2026-03-11T00:00:00Z",
+                        "endDate": "2026-03-11T05:45:00Z",
+                        "source": {"name": "Apple Watch"},
+                    },
+                    {
+                        "id": "WHOOP-2",
+                        "stage": "sleeping",
+                        "startDate": "2026-03-11T01:00:00Z",
+                        "endDate": "2026-03-11T02:00:00Z",
+                        "source": {"name": "WHOOP"},
+                    },
+                ],
+            },
+        }
+
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = None
+        mock_redis.hvals.return_value = []
+        mock_redis_func.return_value = mock_redis
+        mock_event_service.find_adjacent_sleep_record.return_value = None
+        mock_event_service.create.side_effect = [MagicMock(id=uuid4()), MagicMock(id=uuid4())]
+
+        sessions_saved = handle_sleep_data(db, SyncRequest.model_validate(payload), user_id)
+
+        assert sessions_saved == 2
+        assert mock_redis.hset.call_count == 2
+        assert len({call.args[1] for call in mock_redis.hset.call_args_list}) == 2
+
+        created_records = [call.args[1] for call in mock_event_service.create.call_args_list]
+        assert [record.source_name for record in created_records] == ["WHOOP", "Apple Watch"]
+
+        created_details = [call.args[1] for call in mock_event_service.create_detail.call_args_list]
+        assert {stage.stage for stage in created_details[0].sleep_stages} == {SleepStageType.SLEEPING}
+        assert {stage.stage for stage in created_details[1].sleep_stages} == {
+            SleepStageType.LIGHT,
+            SleepStageType.DEEP,
+        }
+        mock_finalize.delay.assert_called_once()
+
+    @patch("app.integrations.celery.tasks.finalize_stale_sleep_task.finalize_stale_sleeps")
+    @patch("app.services.apple.healthkit.sleep_service.event_record_service")
+    @patch("app.services.apple.healthkit.sleep_service.get_redis_client")
+    def test_failed_finalization_keeps_source_state_in_redis(
+        self,
+        mock_redis_func: MagicMock,
+        mock_event_service: MagicMock,
+        mock_finalize: MagicMock,
+        db: Session,
+    ) -> None:
+        """A stale source remains retryable when its database write fails."""
+        user_id = str(uuid4())
+        payload = {
+            "provider": "apple",
+            "sdkVersion": "1.0.0",
+            "syncTimestamp": "2026-03-11T13:28:04Z",
+            "data": {
+                "records": [],
+                "workouts": [],
+                "sleep": [
+                    {
+                        "id": "WATCH-FAILED",
+                        "stage": "sleeping",
+                        "startDate": "2026-03-10T22:00:00Z",
+                        "endDate": "2026-03-11T06:00:00Z",
+                        "source": {"name": "Apple Watch"},
+                    }
+                ],
+            },
+        }
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = None
+        mock_redis.hvals.return_value = []
+        mock_redis_func.return_value = mock_redis
+        mock_event_service.find_adjacent_sleep_record.return_value = None
+        mock_event_service.create.side_effect = RuntimeError("database unavailable")
+
+        sessions_saved = handle_sleep_data(db, SyncRequest.model_validate(payload), user_id)
+
+        assert sessions_saved == 0
+        mock_redis.hset.assert_called_once()
+        mock_redis.hdel.assert_not_called()
+        mock_finalize.delay.assert_called_once()
 
 
 class TestSDKSyncEndpointSleep:
@@ -683,7 +839,7 @@ class TestSDKSyncEndpointSleep:
 
 
 class TestNoIntermediateRedisSaves:
-    """Regression test: Redis state must only be saved once per batch, not per stage.
+    """Regression test: each source state must only be saved once per batch, not per stage.
 
     Previously, save_sleep_state was called inside the per-stage loop, exposing
     partially-accumulated intermediate states to the concurrent finalize_stale_sleeps
@@ -702,11 +858,12 @@ class TestNoIntermediateRedisSaves:
         mock_finalize: MagicMock,
         db: Session,
     ) -> None:
-        """Redis .set() should be called exactly once after processing all stages."""
+        """Redis .hset() should be called once after processing one source's stages."""
         user_id = str(uuid4())
 
         mock_redis = MagicMock()
         mock_redis.get.return_value = None
+        mock_redis.hvals.return_value = []
         mock_redis_func.return_value = mock_redis
 
         mock_record = MagicMock()
@@ -718,17 +875,15 @@ class TestNoIntermediateRedisSaves:
 
         handle_sleep_data(db, request, user_id)
 
-        # Count how many times set() was called (each call = one Redis state save).
-        # With the fix, this should be exactly 1 — after the loop finishes.
-        # Before the fix, it was called once per stage (9 times for this payload).
-        set_calls = mock_redis.set.call_args_list
+        # Count how many times hset() was called (each call = one source-state save).
+        set_calls = mock_redis.hset.call_args_list
         assert len(set_calls) == 1, (
-            f"Expected exactly 1 Redis save per batch, got {len(set_calls)}. "
+            f"Expected exactly 1 Redis save per source per batch, got {len(set_calls)}. "
             "Intermediate saves expose partial state to finalize_stale_sleeps."
         )
 
         # Verify the single saved state contains ALL stages from the payload
-        state = SleepState.model_validate_json(set_calls[0][0][1])
+        state = SleepState.model_validate_json(set_calls[0][0][2])
         # The payload has 9 stages; in_bed is included but counted under in_bed_seconds
         assert len(state.stages) >= 8  # at least the 8 watch stages + 1 in_bed
 
@@ -806,7 +961,8 @@ class TestHistoricalBulkUploadMerging:
         ]
 
         mock_redis = MagicMock()
-        mock_redis.get.return_value = None  # No active Redis state for this user
+        mock_redis.get.return_value = None  # No legacy state for this user
+        mock_redis.hvals.return_value = []
         mock_redis_func.return_value = mock_redis
 
         mock_record = MagicMock()

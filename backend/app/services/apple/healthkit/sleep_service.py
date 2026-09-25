@@ -42,8 +42,13 @@ _STAGE_TO_METRIC: dict[str, str] = {
 
 
 def key(user_id: str) -> str:
-    """Generate a key for the sleep state."""
+    """Generate the legacy single-state key used before source partitioning."""
     return f"sleep:active:{user_id}"
+
+
+def source_states_key(user_id: str) -> str:
+    """Generate the Redis hash key containing one state per provider/source."""
+    return f"sleep:active_sources:{user_id}"
 
 
 def active_users_key() -> str:
@@ -51,35 +56,84 @@ def active_users_key() -> str:
     return "sleep:active_users"
 
 
-def load_sleep_state(user_id: str) -> SleepState | None:
-    """Load the sleep state from Redis."""
-    sleep_state_key = key(user_id)
-    state = get_redis_client().get(sleep_state_key)
-    if not state:
+def _state_identity(provider: str | None, source_name: str | None) -> tuple[str, str]:
+    return provider or "unknown", source_name or "unknown"
+
+
+def _state_field(provider: str | None, source_name: str | None) -> str:
+    return json.dumps(_state_identity(provider, source_name), separators=(",", ":"))
+
+
+def _parse_sleep_state(raw_state: object, user_id: str) -> SleepState | None:
+    if raw_state is None:
+        return None
+    if not isinstance(raw_state, (str, bytes, bytearray)):
+        logger.error(f"Unexpected sleep state type for user {user_id}: {type(raw_state).__name__}")
+        return None
+    if not raw_state:
         return None
     try:
-        if isinstance(state, bytes):
-            state = state.decode("utf-8")
-        return SleepState.model_validate_json(state)
+        return SleepState.model_validate_json(raw_state)
     except Exception as e:
         logger.error(f"Failed to parse sleep state for user {user_id}: {e}")
         try:
-            raw = json.loads(state)
+            raw = json.loads(raw_state)
             return SleepState.model_validate(raw)
         except Exception as fallback_e:
             logger.error(f"Legacy state migration failed for user {user_id}: {fallback_e}; session will be dropped")
             return None
 
 
+def load_sleep_state(user_id: str) -> SleepState | None:
+    """Load the legacy single sleep state from Redis."""
+    return _parse_sleep_state(get_redis_client().get(key(user_id)), user_id)
+
+
+def load_sleep_states(user_id: str) -> dict[tuple[str, str], SleepState]:
+    """Load all provider/source sleep states, migrating the legacy state if present."""
+    redis_client = get_redis_client()
+    states: dict[tuple[str, str], SleepState] = {}
+    for raw_state in redis_client.hvals(source_states_key(user_id)):
+        state = _parse_sleep_state(raw_state, user_id)
+        if state:
+            states[_state_identity(state.provider, state.source_name)] = state
+
+    legacy_state = _parse_sleep_state(redis_client.get(key(user_id)), user_id)
+    if legacy_state:
+        identity = _state_identity(legacy_state.provider, legacy_state.source_name)
+        if identity not in states:
+            states[identity] = legacy_state
+            redis_client.hset(
+                source_states_key(user_id),
+                _state_field(legacy_state.provider, legacy_state.source_name),
+                legacy_state.model_dump_json(),
+            )
+            redis_client.expire(source_states_key(user_id), settings.redis_sleep_ttl_seconds)
+        redis_client.delete(key(user_id))
+
+    return states
+
+
 def save_sleep_state(user_id: str, state: SleepState) -> None:
-    get_redis_client().set(key(user_id), state.model_dump_json())
-    get_redis_client().expire(key(user_id), settings.redis_sleep_ttl_seconds)
-    get_redis_client().sadd(active_users_key(), user_id)
+    redis_client = get_redis_client()
+    redis_client.hset(
+        source_states_key(user_id),
+        _state_field(state.provider, state.source_name),
+        state.model_dump_json(),
+    )
+    redis_client.expire(source_states_key(user_id), settings.redis_sleep_ttl_seconds)
+    redis_client.sadd(active_users_key(), user_id)
 
 
-def delete_sleep_state(user_id: str) -> None:
-    get_redis_client().delete(key(user_id))
-    get_redis_client().srem(active_users_key(), user_id)
+def delete_sleep_state(user_id: str, state: SleepState | None = None) -> None:
+    redis_client = get_redis_client()
+    if state is None:
+        redis_client.delete(key(user_id))
+    else:
+        redis_client.hdel(source_states_key(user_id), _state_field(state.provider, state.source_name))
+
+    if redis_client.hlen(source_states_key(user_id)) == 0 and not redis_client.exists(key(user_id)):
+        redis_client.srem(active_users_key(), user_id)
 
 
 def _create_new_sleep_state(
@@ -123,8 +177,9 @@ def _apply_transition(
     source_name: str | None = None,
     device_model: str | None = None,
     zone_offset: str | None = None,
-) -> SleepState:
-    """Apply a transition to the sleep state."""
+) -> tuple[SleepState, int]:
+    """Apply a transition and report any session persisted by a large gap."""
+    sessions_saved = 0
 
     # Compute the gap using session boundaries (start_time / end_time) rather than
     # the timestamps of the last-processed sample.  This correctly handles payloads
@@ -142,7 +197,7 @@ def _apply_transition(
         delta_seconds = (start_time - state.end_time).total_seconds()
 
     if delta_seconds > settings.sleep_end_gap_minutes * 60:
-        finish_sleep(db_session, user_id, state)
+        sessions_saved = int(finish_sleep(db_session, user_id, state))
         state = _create_new_sleep_state(start_time, end_time, uuid, provider, source_name, device_model, zone_offset)
 
     if zone_offset and not state.zone_offset:
@@ -190,23 +245,23 @@ def _apply_transition(
         )
     )
 
-    return state
+    return state, sessions_saved
 
 
 def handle_sleep_data(
     db_session: DbSession,
     request: SDKSyncRequest,
     user_id: str,
-) -> None:
+) -> int:
     """
     Process SDK sleep data and track sleep sessions using Redis state.
 
-    Sleep sessions are tracked in Redis and automatically finalized to the database when
-    the configured gap is detected between consecutive sleep records.
+    Sleep sessions are tracked per provider/source in Redis and automatically finalized
+    to the database when the configured gap is detected between sleep records.
 
     A per-user Redis lock serializes concurrent calls so that parallel Celery tasks
-    (e.g. from a bulk historical upload) accumulate stages into the same session instead
-    of overwriting each other's state.
+    (e.g. from a bulk historical upload) accumulate stages into the correct source state
+    instead of overwriting each other.
 
     Stale detection uses ``end_time`` (the last sleep-sample timestamp).  When a bulk
     historical upload finalizes a session whose ``end_time`` is in the past, the new
@@ -222,22 +277,24 @@ def handle_sleep_data(
     Flow:
         - Acquire a per-user Redis lock to prevent concurrent state corruption
         - Deduplicate incoming data based on start/end/stage/source
-        - If no active session exists: Create new session in Redis (only for valid start states)
-        - If active session exists: Check gap between new sample and the session window
+        - Load the active state for each provider/source pair
+        - If no matching session exists: Create one only for valid start states
+        - If a matching session exists: Check gap between sample and session window
           * Gap > configured threshold: Finalize existing session, start new one
-          * Otherwise: Accumulate sleep stage durations in existing session
+          * Otherwise: Accumulate sleep stage durations in that source's session
         - Persist state once after the whole batch; dispatch the stale-sleep task
     """
     redis_client = get_redis_client()
     lock = redis_client.lock(f"sleep:lock:{user_id}", timeout=30, blocking_timeout=15)
+    sessions_saved = 0
 
     try:
         acquired = lock.acquire()
         if not acquired:
             logger.warning("Could not acquire sleep processing lock for user %s; skipping batch", user_id)
-            return
+            return 0
 
-        current_state = load_sleep_state(user_id)
+        current_states = load_sleep_states(user_id)
         provider = request.provider
 
         # Deduplicate and sort
@@ -266,6 +323,8 @@ def handle_sleep_data(
             if sleep_phase is None:
                 continue
 
+            identity = _state_identity(provider, original_source_name)
+            current_state = current_states.get(identity)
             if not current_state:
                 if sleep_phase not in SLEEP_START_STATES:
                     continue
@@ -280,7 +339,7 @@ def handle_sleep_data(
                     sjson.zoneOffset,
                 )
 
-            current_state = _apply_transition(
+            current_states[identity], saved = _apply_transition(
                 db_session,
                 user_id,
                 current_state,
@@ -293,22 +352,21 @@ def handle_sleep_data(
                 device_model,
                 sjson.zoneOffset,
             )
+            sessions_saved += saved
 
-        # Persist the accumulated state to Redis only once after processing the entire batch
-        if current_state:
+        # Save every source before finalization so a database failure leaves its
+        # complete state available for the periodic retry.
+        for current_state in current_states.values():
             save_sleep_state(user_id, current_state)
 
-        # Finalise synchronously if the session is already stale.  Historical
-        # uploads have end_time far in the past so this fires immediately, but
-        # finish_sleep now merges the result with any adjacent record already in
-        # the DB — so each payload extends the growing record rather than
-        # creating a separate session.
-        if current_state:
+        # Finalise historical sessions synchronously. Each source is merged only
+        # with its own adjacent database record.
+        for current_state in current_states.values():
             session_end = current_state.end_time
             if session_end.tzinfo is None:
                 session_end = session_end.replace(tzinfo=timezone.utc)
             if datetime.now(timezone.utc) - session_end >= timedelta(minutes=settings.sleep_end_gap_minutes):
-                finish_sleep(db_session, user_id, current_state)
+                sessions_saved += int(finish_sleep(db_session, user_id, current_state))
 
     finally:
         with contextlib.suppress(Exception):
@@ -320,6 +378,7 @@ def handle_sleep_data(
     # Dispatch the stale-sleep task so sessions that have gone quiet (including
     # other users' sessions) are finalised promptly without waiting for the next beat.
     finalize_stale_sleeps.delay()
+    return sessions_saved
 
 
 def _calculate_final_metrics(stages: list[SleepStateStage]) -> tuple[dict, list[SleepStage]]:
@@ -422,7 +481,7 @@ def _calculate_final_metrics(stages: list[SleepStateStage]) -> tuple[dict, list[
     return metrics, cleaned_stages
 
 
-def finish_sleep(db_session: DbSession, user_id: str, state: SleepState) -> None:
+def finish_sleep(db_session: DbSession, user_id: str, state: SleepState) -> bool:
     """Finish a sleep session and save the record to the database.
 
     Before creating a new record the function checks whether an existing adjacent
@@ -447,7 +506,7 @@ def finish_sleep(db_session: DbSession, user_id: str, state: SleepState) -> None
         start_time = state.start_time
 
     # --- Merge with an adjacent existing session if one exists ---
-    source_for_lookup = state.source_name if state.source_name != "unknown" else None
+    source_for_lookup = state.source_name or "unknown"
     adjacent = event_record_service.find_adjacent_sleep_record(
         db_session,
         UUID(user_id),
@@ -527,7 +586,8 @@ def finish_sleep(db_session: DbSession, user_id: str, state: SleepState) -> None
         event_record_service.create_detail(db_session, detail_for_record, detail_type="sleep")
         # Delete from Redis only after a successful DB write so a transient error
         # keeps the session available for the next periodic finalization attempt.
-        delete_sleep_state(user_id)
+        delete_sleep_state(user_id, state)
+        return True
     except Exception as e:
         log_structured(
             logger,
@@ -539,3 +599,4 @@ def finish_sleep(db_session: DbSession, user_id: str, state: SleepState) -> None
             sleep_record_id=sleep_record.id,
             error=str(e),
         )
+        return False
