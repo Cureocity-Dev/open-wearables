@@ -109,10 +109,25 @@ jobs:
           # interpolation so the script is one plain literal, easy to eyeball).
           sed -i "s|__GH_REPOSITORY__|${GH_REPOSITORY}|g; s|__GH_REF_NAME__|${GH_REF_NAME}|g" /tmp/deploy.sh
 
+          echo "--- deploy.sh: $(wc -l < /tmp/deploy.sh) lines ---"
+
+          # Build the SSM parameters as a JSON file directly instead of
+          # piping through `jq` inside a nested command substitution - that
+          # pattern proved unreliable to debug (a prior run silently sent an
+          # empty commands=[""] payload, so the script never touched Docker
+          # even though the workflow reported success).
+          python3 -c "
+          import json
+          with open('/tmp/deploy.sh') as f:
+              content = f.read()
+          with open('/tmp/ssm-params.json', 'w') as f:
+              json.dump({'commands': [content]}, f)
+          "
+
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --parameters "commands=$(jq -Rs '[.]' /tmp/deploy.sh)" \
+            --parameters file:///tmp/ssm-params.json \
             --comment "GitHub Actions deploy ${GH_SHA}" \
             --query 'Command.CommandId' --output text)
 
