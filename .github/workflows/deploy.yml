@@ -38,6 +38,12 @@ jobs:
           set -euo pipefail
 
           cat > /tmp/deploy.sh <<'SCRIPT'
+          #!/bin/bash
+          # SSM's AWS-RunShellScript document runs this via /bin/sh, which is
+          # dash (not bash) on Ubuntu - dash chokes on `set -o pipefail` with
+          # "Illegal option -o pipefail". This shebang forces SSM to invoke
+          # bash instead, regardless of the box's default /bin/sh.
+          #
           # SSM Run Command executes this as root with no $HOME. The real
           # checkout at /home/ubuntu/open-wearables is owned by ubuntu, and
           # only ubuntu has the SSH deploy key for the github-wearable host
@@ -47,6 +53,7 @@ jobs:
           set -euo pipefail
 
           cat > /tmp/ow-deploy-inner.sh <<'INNER'
+          #!/bin/bash
           # Fail the deploy if any command fails (previously a failed
           # git pull was silently ignored, so stale code kept building).
           set -euo pipefail
