@@ -58,6 +58,7 @@ class TestProcessSDKUploadTask:
         assert result["status"] == "error"
         assert result["reason"] == "invalid_user_id"
 
+    @patch("app.integrations.celery.tasks.process_sdk_upload_task.completed")
     @patch("app.integrations.celery.tasks.process_sdk_upload_task.sdk_import_service")
     @patch("app.integrations.celery.tasks.process_sdk_upload_task.SessionLocal")
     @patch("app.integrations.celery.tasks.process_sdk_upload_task.UserRepository")
@@ -66,6 +67,7 @@ class TestProcessSDKUploadTask:
         mock_user_repo_class: MagicMock,
         mock_session_local: MagicMock,
         mock_hk_import_service: MagicMock,
+        mock_completed: MagicMock,
         db: Session,
         mock_celery_app: MagicMock,
     ) -> None:
@@ -80,7 +82,16 @@ class TestProcessSDKUploadTask:
         mock_user_repo_class.return_value = mock_user_repo
 
         mock_response = MagicMock()
-        mock_response.model_dump.return_value = {"status_code": 200, "message": "Import successful"}
+        mock_response.model_dump.return_value = {
+            "status_code": 200,
+            "response": "Import successful",
+            "incoming_records": 5,
+            "incoming_workouts": 2,
+            "incoming_sleep": 3,
+            "records_saved": 4,
+            "workouts_saved": 1,
+            "sleep_saved": 3,
+        }
         mock_hk_import_service.import_data_from_request.return_value = mock_response
 
         content = '{"data":{"workouts":[],"records":[]}}'
@@ -97,6 +108,60 @@ class TestProcessSDKUploadTask:
         # Assert
         assert result["status_code"] == 200
         mock_hk_import_service.import_data_from_request.assert_called_once()
+        assert mock_completed.call_args.kwargs["items_processed"] == 8
+        assert "items_total" not in mock_completed.call_args.kwargs
+        assert mock_completed.call_args.kwargs["metadata"] == {
+            "batch_id": result["batch_id"],
+            "incoming_records": 5,
+            "incoming_workouts": 2,
+            "incoming_sleep": 3,
+            "records_saved": 4,
+            "workouts_saved": 1,
+            "sleep_saved": 3,
+        }
+
+    @patch("app.integrations.celery.tasks.process_sdk_upload_task.failed")
+    @patch("app.integrations.celery.tasks.process_sdk_upload_task.sdk_import_service")
+    @patch("app.integrations.celery.tasks.process_sdk_upload_task.SessionLocal")
+    @patch("app.integrations.celery.tasks.process_sdk_upload_task.UserRepository")
+    def test_failed_upload_reports_known_writes(
+        self,
+        mock_user_repo_class: MagicMock,
+        mock_session_local: MagicMock,
+        mock_hk_import_service: MagicMock,
+        mock_failed: MagicMock,
+        db: Session,
+        mock_celery_app: MagicMock,
+    ) -> None:
+        user = UserFactory()
+        mock_session_local.return_value.__enter__ = MagicMock(return_value=db)
+        mock_session_local.return_value.__exit__ = MagicMock(return_value=None)
+        mock_user_repo_class.return_value.get.return_value = user
+
+        mock_response = MagicMock()
+        mock_response.model_dump.return_value = {
+            "status_code": 400,
+            "response": "Connection update failed",
+            "incoming_records": 5,
+            "incoming_workouts": 2,
+            "incoming_sleep": 3,
+            "records_saved": 4,
+            "workouts_saved": 1,
+            "sleep_saved": 0,
+        }
+        mock_hk_import_service.import_data_from_request.return_value = mock_response
+
+        process_sdk_upload(
+            content='{"data":{"workouts":[],"records":[]}}',
+            content_type="application/json",
+            user_id=str(user.id),
+            provider="apple",
+            batch_id="failed-batch",
+        )
+
+        assert mock_failed.call_args.kwargs["items_processed"] == 5
+        assert mock_failed.call_args.kwargs["metadata"]["incoming_records"] == 5
+        assert mock_failed.call_args.kwargs["metadata"]["records_saved"] == 4
 
     @patch("app.integrations.celery.tasks.process_sdk_upload_task.SessionLocal")
     @patch("app.integrations.celery.tasks.process_sdk_upload_task.UserRepository")

@@ -75,13 +75,13 @@ class TestEmitAndPersist:
         sync_status_service.emit(
             _build_event(user_id, run_id=run_id, stage=SyncStage.PROCESSING),
         )
-        sync_status_service.emit(
-            _build_event(
-                user_id,
-                run_id=run_id,
-                stage=SyncStage.COMPLETED,
-                status=SyncStatus.SUCCESS,
-            ),
+        sync_status_service.completed(
+            user_id,
+            "garmin",
+            SyncSource.PULL,
+            run_id=run_id,
+            status=SyncStatus.SUCCESS,
+            items_processed=7,
         )
 
         summaries = sync_status_service.get_run_summaries(user_id)
@@ -90,6 +90,7 @@ class TestEmitAndPersist:
         assert summary.run_id == run_id
         assert summary.stage == SyncStage.COMPLETED.value
         assert summary.status == SyncStatus.SUCCESS.value
+        assert summary.items_processed == 7
 
 
 class TestTerminalSvixDispatch:
@@ -123,7 +124,15 @@ class TestTerminalSvixDispatch:
         user_id: str,
         mock_outgoing: dict[str, object],
     ) -> None:
-        sync_status_service.failed(user_id, "garmin", SyncSource.PULL, run_id="run_c", error="boom")
+        event = sync_status_service.failed(
+            user_id,
+            "garmin",
+            SyncSource.PULL,
+            run_id="run_c",
+            error="boom",
+            items_processed=2,
+        )
+        assert event.items_processed == 2
         mock_outgoing["failed"].assert_called_once()
 
     def test_progress_does_not_fire_outgoing_webhook(

@@ -463,6 +463,7 @@ def failed(
     run_id: str,
     error: str,
     message: str | None = None,
+    items_processed: int | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> SyncStatusEvent:
     """Emit a FAILED terminal event."""
@@ -475,6 +476,7 @@ def failed(
         run_id=run_id,
         error=error,
         message=message,
+        items_processed=items_processed,
         metadata=metadata,
         ended_at=datetime.now(timezone.utc),
     )
