@@ -80,11 +80,11 @@ class Settings(BaseSettings):
     # Time to live for sleep state in Redis
     redis_sleep_ttl_seconds: int = 24 * 3600  # 24 hours
 
-    # Time between sleep phases to conclude end of sleep session
-    sleep_end_gap_minutes: int = 120  # 2 hours
+    # Finalize sleep immediately so syncing does not wait for the previous 120-minute (2-hour) gap.
+    sleep_end_gap_minutes: int = 0
 
     # SYNC SETTINGS
-    sync_interval_seconds: int = 3600  # Default: 1 hour (3600 seconds)
+    sync_interval_seconds: int = 900  # Default: 15 minutes; previously 1 hour (3600 seconds)
     sleep_sync_interval_seconds: int = 3600  # Default: 1 hour (3600 seconds)
     # Grace-period flag: auto-dispatch historical sync after OAuth connect (default: true).
     # Pre-0.4.2 behaviour. Set to false once your integration calls /sync/historical explicitly.

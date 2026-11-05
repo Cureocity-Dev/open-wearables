@@ -28,9 +28,7 @@ def create_svix_db() -> None:
         # Check existence first. Postgres checks the CREATEDB privilege *before*
         # checking whether the target database exists, so attempting CREATE on a
         # limited user raises InsufficientPrivilege even when 'svix' is present.
-        exists = conn.execute(
-            "SELECT 1 FROM pg_database WHERE datname = 'svix'"
-        ).fetchone()
+        exists = conn.execute("SELECT 1 FROM pg_database WHERE datname = 'svix'").fetchone()
         if exists:
             print("Svix database already exists, skipping.")
             return

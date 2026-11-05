@@ -150,6 +150,41 @@ class TestWebhookEmit:
         assert "chunk_index" not in data
 
     @patch("app.integrations.celery.tasks.emit_webhook_event_task.emit_webhook_event")
+    def test_timeseries_idempotency_key_changes_when_sample_value_changes(self, mock_task: MagicMock) -> None:
+        uid = uuid4()
+        timestamp = "2026-09-01T19:17:58+00:00"
+        sample = {
+            "timestamp": timestamp,
+            "zone_offset": None,
+            "type": "resting_heart_rate",
+            "value": 54.0,
+            "unit": "bpm",
+            "source": {"provider": "apple", "device": "Watch7,2"},
+        }
+
+        def dispatch_and_get_event_id(value: float) -> str:
+            mock_task.reset_mock()
+            on_timeseries_batch_saved(
+                user_id=uid,
+                provider="apple",
+                series_type="resting_heart_rate",
+                sample_count=1,
+                start_time=timestamp,
+                end_time=timestamp,
+                samples=[{**sample, "value": value}],
+            )
+            group_call = next(c for c in mock_task.delay.call_args_list if c[0][0] == "heart_rate.created")
+            return group_call.kwargs["idempotency_key"]
+
+        original_event_id = dispatch_and_get_event_id(54.0)
+        duplicate_event_id = dispatch_and_get_event_id(54.0)
+        corrected_event_id = dispatch_and_get_event_id(56.0)
+
+        assert duplicate_event_id == original_event_id
+        assert corrected_event_id != original_event_id
+        assert len(corrected_event_id) <= 256
+
+    @patch("app.integrations.celery.tasks.emit_webhook_event_task.emit_webhook_event")
     def test_on_timeseries_batch_saved_without_samples(self, mock_task: MagicMock) -> None:
         """Backward-compatible call without samples still dispatches correctly."""
         uid = uuid4()

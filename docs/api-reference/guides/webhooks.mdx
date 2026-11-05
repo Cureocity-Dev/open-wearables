@@ -405,6 +405,10 @@ Each entry in `samples` matches the schema returned by `GET /api/v1/users/{user_
   **Large batches** (exceeding 2 500 samples) are automatically split into consecutive chunk events to stay within Svix's 1 MB payload limit.  Each chunk event includes `chunk_index` (0-based) and `total_chunks` so you can detect and reassemble split deliveries.  The `sample_count` field always reflects the total number of samples across all chunks.
 </Note>
 
+<Note>
+  Open Wearables deduplicates identical timeseries payloads. If a provider later corrects a sample at the same timestamp, the changed payload receives a new event ID and is delivered again with the corrected value.
+</Note>
+
 The pull API (`GET /api/v1/users/{user_id}/timeseries`) remains available for backfill, reconciliation, or recovery after missed deliveries.
 
 ---

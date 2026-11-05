@@ -7,6 +7,8 @@ happens in the worker process.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
 from typing import Any
@@ -201,6 +203,9 @@ def on_timeseries_batch_saved(
     - a *group* event (e.g. ``heart_rate.created``) for broad subscriptions
     - a *granular* event (e.g. ``series.resting_heart_rate.created``) for
       narrow subscriptions to a specific metric
+
+    Event IDs include a payload hash so exact retries are deduplicated while
+    provider corrections to an existing timestamp are delivered again.
     """
     group_event = SERIES_TYPE_TO_GROUP_EVENT.get(series_type)
     if group_event is None:
@@ -213,15 +218,17 @@ def on_timeseries_batch_saved(
     samples = samples or []
 
     def _emit(event_type: str, payload_data: dict[str, Any], ikey: str) -> None:
+        canonical_payload = json.dumps(payload_data, sort_keys=True, separators=(",", ":"), default=str)
+        payload_hash = hashlib.sha256(canonical_payload.encode()).hexdigest()[:24]
         _dispatch(
             event_type,
             {"type": event_type, "data": payload_data},
-            idempotency_key=_safe_key(f"{ikey}.{event_type}"),
+            idempotency_key=_safe_key(f"{ikey}.{payload_hash}.{event_type}"),
             channels=[f"user.{user_id}"],
         )
 
     if len(samples) <= SVIX_MAX_SAMPLES_PER_EVENT:
-        base_key = f"timeseries.{user_id}.{provider}.{series_type}.{start_time or ''}.{end_time or ''}"
+        base_key = f"timeseries.{user_id}.{provider}.{series_type}"
         data: dict[str, Any] = {
             "user_id": str(user_id),
             "provider": provider,
@@ -241,9 +248,7 @@ def on_timeseries_batch_saved(
         for chunk_index, chunk in enumerate(chunks):
             chunk_start = chunk[0]["timestamp"] if chunk else start_time
             chunk_end = chunk[-1]["timestamp"] if chunk else end_time
-            base_key = (
-                f"timeseries.{user_id}.{provider}.{series_type}.{start_time or ''}.{end_time or ''}.chunk{chunk_index}"
-            )
+            base_key = f"timeseries.{user_id}.{provider}.{series_type}.chunk{chunk_index}"
             data = {
                 "user_id": str(user_id),
                 "provider": provider,
