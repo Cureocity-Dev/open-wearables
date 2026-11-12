@@ -52,6 +52,13 @@ jobs:
           # ever touching Docker. Run the real work as ubuntu.
           set -euo pipefail
 
+          # A previous run that aborted partway (set -e on the inner script's
+          # own failure, e.g. git clone) never reaches the `rm -f` at the
+          # bottom, leaving this file behind. Recreating it in place has been
+          # observed to fail with "Permission denied" on a leftover file from
+          # a prior run; delete first so it's always a fresh create.
+          rm -f /tmp/ow-deploy-inner.sh
+
           cat > /tmp/ow-deploy-inner.sh <<'INNER'
           #!/bin/bash
           # Fail the deploy if any command fails (previously a failed
