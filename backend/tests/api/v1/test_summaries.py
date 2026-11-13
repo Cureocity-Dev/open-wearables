@@ -326,7 +326,7 @@ class TestActivitySummaryEndpoint:
             headers=api_key_headers(key.id),
             params={"start_date": "2025-12-26", "end_date": "2025-12-27", "step_aggregation": "apple_health"},
         )
-        assert response.status_code == 422
+        assert response.status_code == 400
 
     def test_smart_steps_preserve_phone_before_watch(self, client: TestClient, db: Session) -> None:
         user = UserFactory()

@@ -11,7 +11,7 @@ Existing activity summaries retain preferred-device behavior unless requested ot
 GET /api/v1/users/{user_id}/summaries/activity?start_date=2026-11-13T00:00:00Z&end_date=2026-11-14T00:00:00Z&step_aggregation=smart_merge
 ```
 
-`step_aggregation` accepts `priority` (default) or `smart_merge`. Invalid modes return HTTP 422. Authentication, pagination and other metrics are unchanged. The dashboard requests smart merge by default and offers a preferred-device selector.
+`step_aggregation` accepts `priority` (default) or `smart_merge`. Invalid modes return HTTP 400, consistent with the application's request-validation error handler. Authentication, pagination and other metrics are unchanged. The dashboard requests smart merge by default and offers a preferred-device selector.
 
 ## Response
 

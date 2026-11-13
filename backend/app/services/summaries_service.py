@@ -38,6 +38,7 @@ from app.schemas.responses.activity import (
     SleepStagesSummary,
     SleepSummary,
 )
+from app.schemas.responses.activity.summaries import StepAggregationMetadata
 from app.schemas.utils import (
     PaginatedResponse,
     Pagination,
@@ -494,7 +495,9 @@ class SummariesService:
             candidates = list(archived_steps)
             archive_keys = {(r["activity_date"], r["source"], r.get("device_model")) for r in candidates}
             candidates.extend(
-                r for r in live_steps if (r["activity_date"], r["source"], r.get("device_model")) not in archive_keys
+                dict(r)
+                for r in live_steps
+                if (r["activity_date"], r["source"], r.get("device_model")) not in archive_keys
             )
             for row in self._filter_by_priority(db_session, user_id, candidates):
                 if row["activity_date"] in archive_days:
@@ -693,9 +696,13 @@ class SummariesService:
                 date=result["activity_date"],
                 source=SourceMetadata(provider=result["source"] or "unknown", device=result.get("device_model")),
                 steps=merged[0] if merged else steps,
-                step_aggregation=merged[1]
+                step_aggregation=StepAggregationMetadata.model_validate(merged[1])
                 if merged
-                else ({"applied": "priority", "is_partial": True} if step_aggregation == "smart_merge" else None),
+                else (
+                    StepAggregationMetadata(applied="priority", is_partial=True)
+                    if step_aggregation == "smart_merge"
+                    else None
+                ),
                 distance_meters=total_distance,
                 floors_climbed=floors_climbed,
                 elevation_meters=elevation_meters,
