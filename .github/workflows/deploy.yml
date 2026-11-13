@@ -82,13 +82,20 @@ jobs:
           git clean -ffd
           echo "Checked out commit: $(git rev-parse --short HEAD)"
 
-          # Handle .env file (copy from /home/ubuntu/wearable.env)
+          # Handle .env file (copy from /home/ubuntu/wearable.env). On a fresh
+          # instance this file doesn't exist yet - restore it from S3 first
+          # (s3://cureocity-dev-infra-certs-845021709999/secrets/wearable.env,
+          # the instance role already has read access there) before falling
+          # back to the placeholder .env.example.
+          if [ ! -f /home/ubuntu/wearable.env ]; then
+            aws s3 cp s3://cureocity-dev-infra-certs-845021709999/secrets/wearable.env /home/ubuntu/wearable.env --region ap-south-1 || true
+          fi
           if [ -f /home/ubuntu/wearable.env ]; then
             cp /home/ubuntu/wearable.env backend/config/.env
             echo "Updated backend/config/.env from /home/ubuntu/wearable.env"
           elif [ ! -f backend/config/.env ]; then
             cp backend/config/.env.example backend/config/.env
-            echo "Warning: /home/ubuntu/wearable.env not found. Created from example."
+            echo "Warning: /home/ubuntu/wearable.env not found locally or in S3. Created from example."
           fi
 
           # Stop and remove existing containers first so host ports are
