@@ -35,6 +35,7 @@ def merge_steps(samples: list[StepInterval]) -> MergedSteps:
     points = [s for s in samples if s.value > 0 and (s.end is None or s.end <= s.start)]
     events: dict[datetime, list[tuple[int, int]]] = defaultdict(list)
     for i, sample in enumerate(intervals):
+        assert sample.end is not None  # Guaranteed by interval filtering above.
         events[sample.start].append((i, 1))
         events[sample.end].append((i, -1))
     point_groups: dict[datetime, list[StepInterval]] = defaultdict(list)
@@ -53,6 +54,7 @@ def merge_steps(samples: list[StepInterval]) -> MergedSteps:
     for pos, boundary in enumerate(boundaries):
         for i, direction in events[boundary]:
             sample = intervals[i]
+            assert sample.end is not None
             rate = sample.value / Decimal(str((sample.end - sample.start).total_seconds()))
             if direction == 1:
                 if not active[sample.source_id]:
@@ -82,7 +84,9 @@ def merge_steps(samples: list[StepInterval]) -> MergedSteps:
         contributors.add(devices[winner])
         for i in active[winner]:
             retained[i] += seconds
-    estimated = any(0 < retained[i] < (s.end - s.start).total_seconds() for i, s in enumerate(intervals))
+    estimated = any(
+        s.end is not None and 0 < retained[i] < (s.end - s.start).total_seconds() for i, s in enumerate(intervals)
+    )
     return MergedSteps(
         int(total.quantize(Decimal(1), rounding=ROUND_HALF_UP)),
         estimated or bool(points),
