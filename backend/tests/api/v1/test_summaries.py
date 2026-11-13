@@ -318,7 +318,106 @@ class TestSleepSummaryEndpoint:
 
 
 class TestActivitySummaryEndpoint:
-    """Test suite for activity summaries endpoint."""
+    def test_invalid_step_aggregation_rejected(self, client: TestClient, db: Session) -> None:
+        user = UserFactory()
+        key = ApiKeyFactory()
+        response = client.get(
+            f"/api/v1/users/{user.id}/summaries/activity",
+            headers=api_key_headers(key.id),
+            params={"start_date": "2025-12-26", "end_date": "2025-12-27", "step_aggregation": "apple_health"},
+        )
+        assert response.status_code == 422
+
+    def test_smart_steps_preserve_phone_before_watch(self, client: TestClient, db: Session) -> None:
+        user = UserFactory()
+        phone = DataSourceFactory(user=user, source="apple", device_model="iPhone16,1")
+        watch = DataSourceFactory(user=user, source="apple", device_model="Watch7,1")
+        steps_type = SeriesTypeDefinitionFactory.get_or_create_steps()
+        start = datetime(2025, 12, 26, 8, tzinfo=timezone.utc)
+        DataPointSeriesFactory(mapping=phone, series_type=steps_type, value=Decimal(356), recorded_at=start)
+        DataPointSeriesFactory(
+            mapping=watch, series_type=steps_type, value=Decimal(30), recorded_at=start + timedelta(hours=1)
+        )
+        key = ApiKeyFactory()
+        params = {
+            "start_date": "2025-12-26T00:00:00Z",
+            "end_date": "2025-12-27T00:00:00Z",
+            "step_aggregation": "smart_merge",
+        }
+        response = client.get(
+            f"/api/v1/users/{user.id}/summaries/activity", headers=api_key_headers(key.id), params=params
+        )
+        assert response.status_code == 200
+        assert response.json()["data"][0]["steps"] == 386
+        assert response.json()["data"][0]["step_aggregation"]["is_partial"] is True
+
+    def test_smart_steps_mixed_archive_preserves_priority_total(self, client: TestClient, db: Session) -> None:
+        from uuid import uuid4
+
+        from app.models import DataPointSeriesArchive
+        from app.schemas.enums import AggregationMethod, SeriesType, get_series_type_id
+
+        user = UserFactory()
+        watch = DataSourceFactory(user=user, source="apple", device_model="Watch7,1")
+        phone = DataSourceFactory(user=user, source="apple", device_model="iPhone16,1")
+        steps_type = SeriesTypeDefinitionFactory.get_or_create_steps()
+        start = datetime(2025, 12, 26, tzinfo=timezone.utc)
+        db.add(
+            DataPointSeriesArchive(
+                id=uuid4(),
+                data_source_id=watch.id,
+                series_type_definition_id=get_series_type_id(SeriesType.steps),
+                bucket_start_at=start,
+                aggregation_type=AggregationMethod.SUM,
+                value=Decimal(8000),
+                sample_count=10,
+            )
+        )
+        DataPointSeriesFactory(
+            mapping=phone, series_type=steps_type, value=Decimal(100), recorded_at=start + timedelta(hours=12)
+        )
+        db.commit()
+        key = ApiKeyFactory()
+        response = client.get(
+            f"/api/v1/users/{user.id}/summaries/activity",
+            headers=api_key_headers(key.id),
+            params={
+                "start_date": start.isoformat(),
+                "end_date": (start + timedelta(days=1)).isoformat(),
+                "step_aggregation": "smart_merge",
+            },
+        )
+        assert response.status_code == 200
+        result = response.json()["data"][0]
+        assert result["steps"] == 8000
+        assert result["step_aggregation"]["applied"] == "priority"
+        assert result["step_aggregation"]["is_partial"] is True
+
+    def test_smart_steps_preserve_interval_across_midnight(self, client: TestClient, db: Session) -> None:
+        user = UserFactory()
+        source = DataSourceFactory(user=user, source="apple", device_model="iPhone16,1")
+        steps_type = SeriesTypeDefinitionFactory.get_or_create_steps()
+        start = datetime(2025, 12, 26, 23, 55, tzinfo=timezone.utc)
+        DataPointSeriesFactory(
+            mapping=source,
+            series_type=steps_type,
+            value=Decimal(100),
+            recorded_at=start,
+            end_at=start + timedelta(minutes=10),
+        )
+        key = ApiKeyFactory()
+        response = client.get(
+            f"/api/v1/users/{user.id}/summaries/activity",
+            headers=api_key_headers(key.id),
+            params={
+                "start_date": "2025-12-26T00:00:00Z",
+                "end_date": "2025-12-28T00:00:00Z",
+                "step_aggregation": "smart_merge",
+            },
+        )
+        assert response.status_code == 200
+        assert [(d["date"], d["steps"]) for d in response.json()["data"]] == [("2025-12-26", 50), ("2025-12-27", 50)]
+        assert all(d["step_aggregation"]["is_estimated"] for d in response.json()["data"])
 
     def test_get_activity_summary_empty(self, client: TestClient, db: Session) -> None:
         """Test activity summary returns empty data when no data points exist."""

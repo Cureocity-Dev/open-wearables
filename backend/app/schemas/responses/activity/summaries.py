@@ -19,11 +19,20 @@ class HeartRateStats(BaseModel):
     min_bpm: int | None = None
 
 
+class StepAggregationMetadata(BaseModel):
+    requested: str = "smart_merge"
+    applied: str = "smart_merge"
+    is_estimated: bool = False
+    is_partial: bool = False
+    contributing_device_types: list[str] = Field(default_factory=list)
+
+
 class ActivitySummary(BaseModel):
     date: date
     source: SourceMetadata
     # Step and movement metrics
     steps: int | None = Field(None, description="Total step count", example=8432)
+    step_aggregation: StepAggregationMetadata | None = None
     distance_meters: float | None = Field(None, example=6240.5)
     # Elevation metrics
     floors_climbed: int | None = Field(None, description="Calculated from elevation (1 floor ≈ 3m)", example=12)
