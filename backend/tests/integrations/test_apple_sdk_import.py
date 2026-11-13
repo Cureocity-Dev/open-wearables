@@ -6,6 +6,7 @@ Tests the full import flow for Apple HealthKit data via SDK.
 
 import json
 import logging
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -642,6 +643,14 @@ class TestSDKImportUnitConversion:
                 "data": {"records": records},
             }
         )
+
+    def test_step_interval_end_is_preserved(self, import_service: ImportService) -> None:
+        record = self._record("HKQuantityTypeIdentifierStepCount", 356)
+        record["endDate"] = "2025-04-10T12:10:00Z"
+        request = self._build_request("apple", [record])
+        samples = import_service._build_statistic_bundles(request, str(uuid4()))
+        assert len(samples) == 1
+        assert samples[0].end_at == datetime(2025, 4, 10, 12, 10, tzinfo=timezone.utc)
 
     def test_apple_body_fat_percentage_scaled_by_100(
         self,

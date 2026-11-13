@@ -149,6 +149,7 @@ class ImportService:
                 software_version=software_version,
                 provider=provider,
                 recorded_at=rjson.startDate,
+                end_at=rjson.endDate,
                 zone_offset=rjson.zoneOffset,
                 value=value,
                 series_type=series_type,

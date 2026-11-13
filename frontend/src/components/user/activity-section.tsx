@@ -220,6 +220,18 @@ function ActivityDayRow({ summary }: { summary: ActivitySummary }) {
                 {formatNumber(summary.steps)}
               </p>
               <p className="text-xs text-muted-foreground">Steps</p>
+              {summary.step_aggregation && (
+                <p className="text-xs text-muted-foreground">
+                  {summary.step_aggregation.applied === 'priority'
+                    ? 'Legacy fallback'
+                    : summary.step_aggregation.contributing_device_types
+                          .length > 1
+                      ? 'Multiple sources'
+                      : 'Smart merge'}
+                  {summary.step_aggregation.is_estimated && ' · Estimated'}
+                  {summary.step_aggregation.is_partial && ' · Limited timing'}
+                </p>
+              )}
             </div>
           </div>
 
@@ -327,6 +339,10 @@ export function ActivitySection({
   dateRange,
   onDateRangeChange,
 }: ActivitySectionProps) {
+  const [stepAggregation, setStepAggregation] = useState<
+    'priority' | 'smart_merge'
+  >('smart_merge');
+
   // Cursor-based pagination for activity days
   const pagination = useCursorPagination();
 
@@ -341,6 +357,7 @@ export function ActivitySection({
       start_date: startDate,
       end_date: endDate,
       limit: dateRange,
+      step_aggregation: stepAggregation,
     }
   );
 
@@ -351,6 +368,7 @@ export function ActivitySection({
     isFetching,
   } = useActivitySummaries(userId, {
     ...allTimeRange,
+    step_aggregation: stepAggregation,
     limit: DAYS_PER_PAGE,
     cursor: pagination.currentCursor ?? undefined,
     sort_order: 'desc',
@@ -408,6 +426,28 @@ export function ActivitySection({
         />
 
         <div className="p-6">
+          <label className="mb-4 flex items-center gap-3 text-sm">
+            Step calculation
+            <select
+              aria-label="Step calculation"
+              className="rounded-md border border-border bg-background px-3 py-2"
+              value={stepAggregation}
+              onChange={(event) =>
+                setStepAggregation(
+                  event.target.value as 'priority' | 'smart_merge'
+                )
+              }
+            >
+              <option value="smart_merge">Smart merge</option>
+              <option value="priority">Preferred device (legacy)</option>
+            </select>
+          </label>
+          {stepAggregation === 'smart_merge' && (
+            <p className="mb-4 text-xs text-muted-foreground">
+              Steps combine device coverage. Partial overlaps are estimated;
+              historical data may lack timing.
+            </p>
+          )}
           {summaryLoading ? (
             <ActivitySectionSkeleton />
           ) : !stats ? (

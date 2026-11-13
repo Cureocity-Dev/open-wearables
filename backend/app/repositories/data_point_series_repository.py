@@ -178,6 +178,7 @@ class DataPointSeriesRepository(
                     "external_id": creator.external_id,
                     "data_source_id": source_id,
                     "recorded_at": creator.recorded_at,
+                    "end_at": creator.end_at,
                     "zone_offset": creator.zone_offset,
                     "value": creator.value,
                     "series_type_definition_id": get_series_type_id(creator.series_type),
@@ -202,6 +203,7 @@ class DataPointSeriesRepository(
                     index_elements=["data_source_id", "series_type_definition_id", "recorded_at"],
                     set_={
                         "value": stmt.excluded.value,
+                        "end_at": func.coalesce(stmt.excluded.end_at, self.model.end_at),
                         "external_id": stmt.excluded.external_id,
                         "zone_offset": stmt.excluded.zone_offset,
                     },

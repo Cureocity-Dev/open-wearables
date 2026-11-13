@@ -445,6 +445,13 @@ export interface IntensityMinutes {
 }
 
 export interface ActivitySummary {
+  step_aggregation?: {
+    requested: 'smart_merge';
+    applied: 'smart_merge' | 'priority';
+    is_estimated: boolean;
+    is_partial: boolean;
+    contributing_device_types: string[];
+  } | null;
   date: string;
   source: DataSource;
   // Step and movement metrics

@@ -44,6 +44,7 @@ from app.schemas.utils import (
     SourceMetadata,
     TimeseriesMetadata,
 )
+from app.services.smart_steps_service import get_smart_steps
 from app.utils.exceptions import handle_exceptions
 from app.utils.pagination import (
     decode_activity_cursor,
@@ -456,6 +457,7 @@ class SummariesService:
         cursor: str | None,
         limit: int,
         sort_order: str = "asc",
+        step_aggregation: str = "priority",
     ) -> PaginatedResponse[ActivitySummary]:
         """Get daily activity summaries aggregated by date, provider, and device.
 
@@ -478,7 +480,40 @@ class SummariesService:
         # Merge archived data when archival is enabled
         results = self._merge_archive_activity(db_session, user_id, start_date, end_date, results)
 
-        # Filter by priority to get best source per date
+        smart_steps = (
+            get_smart_steps(db_session, user_id, start_date, end_date) if step_aggregation == "smart_merge" else {}
+        )
+        if step_aggregation == "smart_merge":
+            # Daily archives have no intervals: use explicit conservative fallback
+            # for any affected day, including mixed archived/live coverage.
+            archived_steps = self.archive_repo.get_daily_activity_aggregates_from_archive(
+                db_session, user_id, start_date, end_date, [get_series_type_id(SeriesType.steps)]
+            )
+            archive_days = {r["activity_date"] for r in archived_steps}
+            live_steps = self.data_point_repo.get_daily_activity_aggregates(db_session, user_id, start_date, end_date)
+            candidates = list(archived_steps)
+            archive_keys = {(r["activity_date"], r["source"], r.get("device_model")) for r in candidates}
+            candidates.extend(
+                r for r in live_steps if (r["activity_date"], r["source"], r.get("device_model")) not in archive_keys
+            )
+            for row in self._filter_by_priority(db_session, user_id, candidates):
+                if row["activity_date"] in archive_days:
+                    smart_steps[row["activity_date"]] = (
+                        row["steps_sum"],
+                        {
+                            "requested": "smart_merge",
+                            "applied": "priority",
+                            "is_partial": True,
+                            "is_estimated": False,
+                            "contributing_device_types": [],
+                        },
+                    )
+        existing_days = {r["activity_date"] for r in results}
+        for day in smart_steps.keys() - existing_days:
+            results.append({"activity_date": day, "source": "unknown", "device_model": None})
+        results = sorted(results, key=lambda r: r["activity_date"])
+
+        # Filter other metrics by priority; steps use independent coverage.
         results = self._filter_by_priority(db_session, user_id, results, date_key="activity_date")
 
         # Get workout aggregates (elevation, distance, energy from workouts)
@@ -653,10 +688,14 @@ class SummariesService:
                 )
 
             steps = result.get("steps_sum")
+            merged = smart_steps.get(result["activity_date"])
             summary = ActivitySummary(
                 date=result["activity_date"],
                 source=SourceMetadata(provider=result["source"] or "unknown", device=result.get("device_model")),
-                steps=steps if steps is not None else None,
+                steps=merged[0] if merged else steps,
+                step_aggregation=merged[1]
+                if merged
+                else ({"applied": "priority", "is_partial": True} if step_aggregation == "smart_merge" else None),
                 distance_meters=total_distance,
                 floors_climbed=floors_climbed,
                 elevation_meters=elevation_meters,

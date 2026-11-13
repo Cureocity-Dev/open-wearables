@@ -1,0 +1,49 @@
+---
+title: Smart step aggregation
+description: Opt-in interval-aware step totals for API consumers and the dashboard.
+---
+
+## Request
+
+Existing activity summaries retain preferred-device behavior unless requested otherwise:
+
+```http
+GET /api/v1/users/{user_id}/summaries/activity?start_date=2026-11-13T00:00:00Z&end_date=2026-11-14T00:00:00Z&step_aggregation=smart_merge
+```
+
+`step_aggregation` accepts `priority` (default) or `smart_merge`. Invalid modes return HTTP 422. Authentication, pagination and other metrics are unchanged. The dashboard requests smart merge by default and offers a preferred-device selector.
+
+## Response
+
+The existing `steps` field contains the selected calculation. Smart mode adds step-specific metadata:
+
+```json
+{
+  "steps": 386,
+  "step_aggregation": {
+    "requested": "smart_merge",
+    "applied": "smart_merge",
+    "is_estimated": false,
+    "is_partial": false,
+    "contributing_device_types": ["phone", "watch"]
+  }
+}
+```
+
+This example assumes 356 phone steps and 30 Watch steps in disjoint intervals. Overlapping sources are ranked by configured provider/device priorities, with source ID as a stable tie-breaker. Samples within one source remain additive. Zero step samples do not establish competing coverage. The existing activity `source` describes legacy-selected metrics, not all contributors to merged steps. Active/sedentary minutes retain their existing calculation.
+
+## Precision and historical data
+
+The backend preserves interval end times already supplied by the unchanged mobile SDK. Partial overlaps and midnight splits assume uniform step density and set `is_estimated`. This is not a guarantee of exact Apple Health parity.
+
+Existing timestamp-only samples cannot establish coverage: they use timestamp-based source selection and mark the result partial and estimated. Raw historical durations are not recoverable without retained original uploads. Archive-only results fall back to priority aggregation and report `applied: priority` and `is_partial: true`.
+
+## Microservice integration
+
+Request smart mode explicitly and replace stored daily totals rather than adding each response. Include mode in cache keys, refresh recent historical days for late uploads, and preserve calculation metadata. Do not interpret partial as a measured fraction of the user's day: it means the available records lack required timing or fallback was applied. No records cannot distinguish inactivity from missing synchronization.
+
+Totals are computed at read time, with no materialized totals or background jobs. Upload retries use existing source/type/start-time upsert identity; nullable interval updates preserve previously known end times. SDK and mobile client changes are not required.
+
+## Deployment
+
+Apply the database migration before deploying backend code. The nullable `data_point_series.end_at` column needs no historical backfill. Deploy the backend before the dashboard; existing API requests retain priority behavior.
