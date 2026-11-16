@@ -805,6 +805,7 @@ export interface WebhookListResponse<T> {
 }
 
 export interface WebhookAttemptsParams {
+  user_id?: string;
   limit?: number;
   iterator?: string | null;
   before?: string | null;

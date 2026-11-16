@@ -12,6 +12,12 @@ keywords: ["open wearables webhooks", "health data webhooks", "wearable data rea
 "twitter:card": "summary_large_image"
 ---
 
+## Filter delivery history by user
+
+In an endpoint's **Deliveries** tab, enter a user UUID and select **Apply**. Select **Clear user** to show all users again. Applying or clearing the filter returns to the first page and preserves status, event-type, and page-size filters.
+
+The delivery-history API accepts an optional `user_id` UUID on `GET /api/v1/webhooks/endpoints/{endpoint_id}/attempts`. It filters by the existing `user.<UUID>` message channel before pagination, rather than filtering only the currently displayed page. Events without that channel are excluded when the filter is active. This changes only the history view, not the endpoint's delivery subscriptions.
+
 ## Overview
 
 Outgoing webhooks let Open Wearables push events to your backend in real time, so you don't need to poll for new data. Each time a workout is saved, sleep is recorded, or a timeseries batch is ingested, Open Wearables fires an HTTP POST request to every registered endpoint that matches the event.
