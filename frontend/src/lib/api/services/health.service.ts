@@ -43,7 +43,6 @@ export interface WorkoutsParams {
 }
 
 export interface SummaryParams {
-  step_aggregation?: 'priority' | 'smart_merge';
   start_date: string; // ISO date string (e.g., "2025-01-01T00:00:00Z")
   end_date: string; // ISO date string
   cursor?: string;

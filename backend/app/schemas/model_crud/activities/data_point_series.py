@@ -18,7 +18,6 @@ class TimeSeriesSampleBase(BaseModel):
         description="Existing data source identifier if already created upstream.",
     )
     recorded_at: datetime
-    end_at: datetime | None = None
     zone_offset: ZoneOffset = None
     value: Decimal | float | int
     series_type: SeriesType
