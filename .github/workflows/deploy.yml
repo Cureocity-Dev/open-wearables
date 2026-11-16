@@ -28,9 +28,24 @@ jobs:
           role-to-assume: arn:aws:iam::845021709999:role/github-actions-open-wearables-develop
           aws-region: ap-south-1
 
+      # dev-infra is a spot instance and gets replaced with a new instance ID
+      # over time. The launch template always tags the replacement with
+      # Name=cureocity-dev-infra, so look it up by tag instead of hardcoding
+      # an ID that goes stale on the next replacement.
+      - name: Resolve current dev-infra instance ID
+        run: |
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=cureocity-dev-infra" "Name=instance-state-name,Values=running" \
+            --query 'Reservations[].Instances[].InstanceId' --output text --region ap-south-1)
+          if [ -z "$INSTANCE_ID" ] || [ "$(echo "$INSTANCE_ID" | wc -w)" -ne 1 ]; then
+            echo "Expected exactly one running instance tagged Name=cureocity-dev-infra, got: '$INSTANCE_ID'"
+            exit 1
+          fi
+          echo "Resolved dev-infra instance: $INSTANCE_ID"
+          echo "INSTANCE_ID=$INSTANCE_ID" >> "$GITHUB_ENV"
+
       - name: Deploy to EC2 via SSM
         env:
-          INSTANCE_ID: i-0b6df0f40a93266c3
           GH_REPOSITORY: ${{ github.repository }}
           GH_REF_NAME: ${{ github.ref_name }}
           GH_SHA: ${{ github.sha }}
