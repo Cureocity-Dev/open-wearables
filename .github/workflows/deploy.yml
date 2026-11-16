@@ -128,6 +128,18 @@ jobs:
           # unchanged and skips them, leaving stale code running).
           docker compose up -d --force-recreate --remove-orphans
 
+          # Mirror the freshly-built images to ECR so a replaced instance's
+          # boot-time self-heal (launch template) pulls this exact version
+          # instead of drifting back to whatever was last pushed. Only runs
+          # after `up` succeeds, so a broken deploy never overwrites the
+          # known-good snapshot.
+          REG="845021709999.dkr.ecr.ap-south-1.amazonaws.com"
+          aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin "$REG"
+          docker tag open-wearables-platform:latest "$REG/cureocity-dev-infra/open-wearables-platform:latest"
+          docker push "$REG/cureocity-dev-infra/open-wearables-platform:latest"
+          docker tag open-wearables-frontend:dev "$REG/cureocity-dev-infra/open-wearables-frontend:dev"
+          docker push "$REG/cureocity-dev-infra/open-wearables-frontend:dev"
+
           # Drop dangling images left by the rebuild.
           docker image prune -f
 
