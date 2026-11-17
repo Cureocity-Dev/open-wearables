@@ -12,6 +12,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from svix.api import EndpointOut, MessageAttemptListByEndpointOptions, MessageListOptions, MessageStatus
@@ -164,6 +165,7 @@ def list_endpoint_attempts(
         int | None, Query(description="Filter by status: 0=success, 1=pending, 2=failed, 3=sending.")
     ] = None,
     event_types: Annotated[list[str] | None, Query(description="Filter by event type(s).")] = None,
+    user_id: Annotated[UUID | None, Query(description="Filter deliveries by user ID.")] = None,
 ) -> Any:
     options = MessageAttemptListByEndpointOptions(
         limit=limit,
@@ -172,6 +174,7 @@ def list_endpoint_attempts(
         after=after,
         status=MessageStatus(status) if status is not None else None,
         event_types=event_types,
+        channel=f"user.{user_id}" if user_id else None,
     )
     result = svix_service.list_message_attempts(app_id, endpoint_id, options)
 

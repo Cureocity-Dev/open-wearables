@@ -27,9 +27,11 @@ from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 
 from app.database import DbSession
+from app.schemas.received_data import ReceivedArtifactPreview, ReceivedDataList
 from app.schemas.sync_status import SyncRunSummary, SyncStatusEvent
-from app.services import ApiKeyDep, user_service
+from app.services import ApiKeyDep, received_data_service, user_service
 from app.services.sync_status_service import (
+    ensure_run_owner,
     get_all_run_summaries,
     get_recent_events,
     get_run_summaries,
@@ -155,6 +157,37 @@ def list_all_sync_run_summaries(
         status_filter=status,
         source_filter=source,
     )
+
+
+@router.get("/users/{user_id}/sync/runs/{run_id}/received-data", response_model=ReceivedDataList)
+def list_received_data(
+    user_id: UUID,
+    run_id: str,
+    db: DbSession,
+    _api_key: ApiKeyDep,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    cursor: str | None = None,
+) -> dict:
+    """List immutable ingestion artifact metadata; bodies never enter sync events."""
+    _ensure_user_exists(db, user_id)
+    ensure_run_owner(user_id, run_id)
+    return received_data_service.list_artifacts(str(user_id), run_id, limit=limit, cursor=cursor)
+
+
+@router.get("/users/{user_id}/sync/runs/{run_id}/received-data/{artifact_id}", response_model=ReceivedArtifactPreview)
+def preview_received_data(
+    user_id: UUID,
+    run_id: str,
+    artifact_id: str,
+    db: DbSession,
+    _api_key: ApiKeyDep,
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    cursor: str | None = None,
+) -> dict:
+    """Return a bounded preview, never a storage URL or arbitrary storage key."""
+    _ensure_user_exists(db, user_id)
+    ensure_run_owner(user_id, run_id)
+    return received_data_service.preview(str(user_id), run_id, artifact_id, limit=limit, cursor=cursor)
 
 
 __all__ = ["router"]

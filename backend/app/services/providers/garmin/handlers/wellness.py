@@ -11,9 +11,10 @@ from uuid import UUID
 from app.database import DbSession
 from app.repositories import UserConnectionRepository
 from app.schemas.sync_status import SyncSource, SyncStatus
+from app.services import received_data_service
 from app.services.providers.garmin.backfill_state import get_trace_id
 from app.services.providers.garmin.data_247 import Garmin247Data
-from app.services.sync_status_service import completed, new_run_id
+from app.services.sync_status_service import completed
 from app.utils.structured_logging import log_structured
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,15 @@ def process_wellness_items(
         trace_id = get_trace_id(uid) or request_trace_id
         is_secondary = uid in secondary_primary
         sync_source = SyncSource.LINKED_ACCOUNT if is_secondary else SyncSource.WEBHOOK
+        run_id = f"garmin_wellness_{uid}_{request_trace_id}_{summary_type}"
+        received_data_service.capture(user_id=str(uid), run_id=run_id, payload=items, kind="webhook_body")
+        backfill_trace = get_trace_id(uid)
+        if backfill_trace:
+            received_data_service.capture(
+                user_id=str(uid), run_id=f"garmin_backfill_{uid}_{backfill_trace}", payload=items, kind="webhook_body"
+            )
+        parent_runs = (f"garmin_backfill_{uid}_{backfill_trace}",) if backfill_trace else ()
+        capture_token = received_data_service.begin(str(uid), run_id, *parent_runs)
         try:
             count = garmin_247.process_items_batch(db, uid, summary_type, items)
             total_saved += count
@@ -112,7 +122,7 @@ def process_wellness_items(
                 uid,
                 "garmin",
                 sync_source,
-                run_id=new_run_id(prefix=f"garmin_webhook_{summary_type}"),
+                run_id=run_id,
                 status=SyncStatus.SUCCESS,
                 message=f"Garmin live data received: {summary_type}",
                 items_processed=count,
@@ -134,5 +144,7 @@ def process_wellness_items(
                 error=str(e),
             )
             errors.append(f"{summary_type} error: {e}")
+        finally:
+            received_data_service.end(capture_token)
 
     return {"processed": total_processed, "saved": total_saved, "succeeded_users": succeeded_users}

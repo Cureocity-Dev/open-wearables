@@ -14,6 +14,7 @@ from app.schemas.sync_status import SyncSource, SyncStatus
 from app.services import event_record_service
 from app.services.apple.apple_xml.xml_service import XMLService
 from app.services.apple.healthkit.sleep_service import handle_sleep_data
+from app.services.received_data_service import capture
 from app.services.sync_status_service import completed, failed, new_run_id, started
 from app.services.timeseries_service import timeseries_service
 from app.utils.sentry_helpers import log_and_capture_error
@@ -42,8 +43,10 @@ def process_xml_upload(file_contents: bytes, filename: str, user_id: str) -> dic
     except (ValueError, TypeError):
         user_uuid = None
 
-    run_id = new_run_id(prefix="xml")
+    task_id = process_xml_upload.request.id
+    run_id = f"xml_{user_id}_{task_id}" if task_id else new_run_id(prefix="xml")
     if user_uuid is not None:
+        capture(user_id=user_id, run_id=run_id, payload=file_contents, kind="xml_file")
         started(
             user_uuid,
             "apple",

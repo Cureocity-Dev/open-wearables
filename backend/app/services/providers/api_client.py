@@ -12,6 +12,7 @@ from fastapi import HTTPException, status
 from app.database import DbSession
 from app.repositories import UserConnectionRepository
 from app.services.providers.templates.base_oauth import BaseOAuthTemplate
+from app.services.received_data_service import capture_response
 from app.utils.structured_logging import log_structured
 
 logger = logging.getLogger(__name__)
@@ -162,6 +163,7 @@ def make_authenticated_request(
                 }
 
             result = response.json()
+            capture_response(str(user_id), result)
 
             # Some APIs (like Suunto) return 200 OK but include error in response body
             if isinstance(result, dict):
@@ -276,6 +278,7 @@ def download_binary_content(
             time.sleep(backoff_delay)
             continue
         response.raise_for_status()
+        capture_response(str(user_id), response.content, kind="fit_file")
         return response.content
 
     raise HTTPException(status_code=500, detail=f"Failed to download binary content from {provider_name}")

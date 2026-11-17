@@ -18,6 +18,7 @@ import {
 } from '@/lib/utils/sync-format';
 import { ROUTES } from '@/lib/constants/routes';
 import type { SyncRunSummary } from '@/lib/api';
+import { SyncReceivedData } from '@/components/user/sync-received-data';
 
 export const Route = createFileRoute('/_authenticated/syncs/')({
   component: SyncsPage,
@@ -207,6 +208,9 @@ function SyncsPage() {
                   <th className="px-4 py-2.5 text-left font-medium">
                     Last Update
                   </th>
+                  <th className="px-4 py-2.5 text-left font-medium">
+                    Received Data
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800/50">
@@ -311,6 +315,9 @@ function SyncRow({ run }: { run: SyncRunSummary }) {
       </td>
       <td className="px-4 py-2.5 text-zinc-400">
         {formatRelative(run.last_update)}
+      </td>
+      <td className="px-4 py-2.5">
+        <SyncReceivedData userId={run.user_id} runId={run.run_id} />
       </td>
     </tr>
   );

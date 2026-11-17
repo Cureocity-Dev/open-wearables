@@ -19,7 +19,7 @@ The sync status API lets you observe the entire lifecycle of every sync that run
 Three endpoints are exposed:
 
 - **`GET /api/v1/users/{user_id}/sync/stream`** — long-lived [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events) connection that streams every event as it happens.
-- **`GET /api/v1/users/{user_id}/sync/recent`** — the last N events buffered in Redis (default 50, max 200, retained for 24 hours).
+- **`GET /api/v1/users/{user_id}/sync/recent`** — the last N events buffered in Redis (default 50, max 200, retained for 72 hours).
 - **`GET /api/v1/users/{user_id}/sync/runs`** — the latest event per run (one row per `run_id`), so you can quickly inspect which syncs are in progress and how recent ones ended.
 
 All three accept the same `ApiKeyDep` authentication as the rest of the public API: pass your API key via the `X-API-Key` header.
@@ -52,6 +52,56 @@ The SSE endpoint also supports webhooks — if you have outgoing webhook endpoin
 </Note>
 
 ---
+
+## Received Data Inspection
+
+Received data is captured at ingestion time, never reconstructed from current database rows. Existing runs are not retroactively captured. Bodies are not included in run lists or SSE messages.
+
+- `GET /api/v1/users/{user_id}/sync/runs/{run_id}/received-data?limit=20&cursor=0` lists artifact metadata. `limit` accepts 1-100; `cursor` is the next cursor returned by the previous response.
+- `GET /api/v1/users/{user_id}/sync/runs/{run_id}/received-data/{artifact_id}?limit=100&cursor=0` returns a bounded preview. `limit` accepts 1-100 JSON records. A dictionary is one record. Previews exceeding 256 KiB fall back to a truncated 16,000-character text preview.
+
+Both endpoints accept a developer bearer JWT or `X-Open-Wearables-API-Key`, using the existing developer/admin API policy. No arbitrary object keys or storage URLs are accepted or returned. There is no additional endpoint-specific rate limit; apply your deployment's API rate limits.
+
+```bash
+curl --fail-with-body \
+  -H "X-Open-Wearables-API-Key: $OPEN_WEARABLES_API_KEY" \
+  "$API_BASE/api/v1/users/$USER_ID/sync/runs/$RUN_ID/received-data?limit=20"
+```
+
+The list response contains `run_id`, `user_id`, nullable `expires_at`, `capture_status`, `artifacts`, and nullable `next_cursor`. Artifacts contain `artifact_id`, `captured_at`, `expires_at`, `representation`, `kind`, `content_type`, `size_bytes`, `status`, and `label`. Preview responses contain `artifact_id`, `representation`, `content_type`, `size_bytes`, and `preview` (`format`, nullable `records`, nullable `text`, `truncated`, nullable `next_cursor`).
+
+```json
+{
+  "run_id": "pull_4189248b416143fe",
+  "user_id": "f7512100-c535-45e7-9e49-e19d456b5ab9",
+  "expires_at": null,
+  "capture_status": "unavailable",
+  "artifacts": [],
+  "next_cursor": null
+}
+```
+
+Capture states are `available`, `partial` (some oversized/failed/missing artifacts), `not_captured` (no snapshot), `expired`, and `unavailable` (storage unconfigured or inaccessible). Artifact states are `available`, `oversized`, `failed`, and `expired`. HTTP errors: `400` invalid pagination, `401`/`403` authentication, `404` user/run/artifact mismatch, `410` known expired artifact, `503` unreadable artifact. Handle unavailable states without treating them as empty received data. Successful empty/unconfigured lists return `200`.
+
+### Source Coverage And Limits
+
+- SDK (Apple, Samsung, Google): normalized JSON batch received by the import worker, before processing. This is not the original HTTP wire body.
+- Pull, historical REST backfill, and linked-account pull: provider JSON responses through the shared authenticated API client; supplementary legacy raw-response hooks cover provider-specific clients. Linked users get independent scopes.
+- Webhooks (Oura, Whoop, Polar, Strava, Suunto): normalized notification body after provider resolves the target user; bounded fetched-response snapshots (up to 20 responses, 10 MiB aggregate buffered bytes) are attached to that resolved user's run. Count/byte buffer overflow and serialization failures mark the affected user's capture `partial`, including when all fetched bodies were dropped; no individual dropped-artifact metadata is retained. User-unresolved failures have no attributable artifact.
+- Garmin wellness/activity webhooks: only the resolved user's notifications are captured, never the entire multi-user batch. Notifications are also attached to active Garmin backfill runs. Linked profiles have independent indexes and object paths.
+- XML import: original XML bytes, with metadata-only binary preview. FIT downloads through the shared binary client during an active scoped run: original FIT bytes with metadata-only binary preview. XML/FIT are not downloadable through this API.
+
+JSON is explicitly labeled `normalized`: known authentication fields and HTTP URLs are redacted recursively. XML/FIT retain original bytes privately and are never echoed as text. Maximum stored artifact size is 10 MiB; larger artifacts retain `oversized` metadata. Up to 1,000 artifacts per run are atomically reserved, including interrupted writers; overflow is `partial`. Identical content of the same kind is deduplicated. Response order is artifact-ID order; pagination during active ingestion is not a transactional snapshot. Capture is best effort: worker/Redis/storage failure can cause missing data; it never blocks sync success.
+
+### Deployment And Retention
+
+Capture uses the existing private S3 configuration: set `RAW_PAYLOAD_STORAGE=s3`, `RAW_PAYLOAD_S3_BUCKET` (or `AWS_BUCKET_NAME`), AWS credentials/role, region, and optional S3 endpoint. API and all Celery workers must share the same settings, private bucket, and Redis. The service writes under the separate `sync-received/` prefix with server-side AES256 encryption. IAM must allow PutObject/GetObject on that prefix. Keep bucket access private and configure encryption and transport policies. `disabled` and `log` backends cannot serve the viewer and return `unavailable`. No provisioning or deployment is performed by this feature.
+
+A publisher-stamped Celery header (`received_capture_created_at`) fixes the original task age and is preserved across retries. Captures older than 72 hours are rejected even after metadata eviction. Already-queued legacy tasks without this immutable header fail closed (no capture); deploy/restart API and all publishers before expecting new captures. Direct synchronous calls use their initial capture time. The first capture atomically fixes run expiry from that original age; every list/preview checks absolute expiry. Expiry markers are bounded to ten days, metadata to seven days after body expiry; no permanent keys are created. Use durable non-evicting Redis for complete history.
+
+Atomic Lua admission enforces the 1,000-slot cap. Per-artifact 60-second ownership leases permit retry of failed or interrupted writes without extending original expiry; fencing prevents stale writers publishing metadata or releasing a successor's lease. Conditional S3 `If-None-Match: *` writes make crash-after-upload recovery safe without overwriting the immutable object (the S3-compatible backend must support conditional PutObject). On upload failure metadata stays failed and a later delivery can retry. Existing event histories are retained for 72 hours, capped at 200 recent events per user.
+
+**Read expiry is not physical deletion.** Configure a bucket lifecycle expiration rule separately for prefix `sync-received/` with a three-day expiration, including noncurrent versions if versioning is enabled. S3 lifecycle deletion is asynchronous and may happen later than 72 hours; the API denies reads at 72 hours regardless. The object's HTTP `Expires` metadata does not delete it. Existing `raw-payloads/` debug copies have their own retention and must be governed independently. Validate lifecycle, IAM, private access, credentials, Redis durability, and API/worker configuration before enabling in production.
 
 ## Event Schema
 

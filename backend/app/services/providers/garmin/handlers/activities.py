@@ -17,7 +17,8 @@ from app.schemas.providers.garmin import ActivityJSON as GarminActivityJSON
 from app.schemas.sync_status import SyncSource, SyncStatus
 from app.services.providers.garmin.backfill_state import get_trace_id
 from app.services.providers.garmin.workouts import GarminWorkouts
-from app.services.sync_status_service import completed, new_run_id
+from app.services.received_data_service import capture
+from app.services.sync_status_service import completed
 from app.utils.structured_logging import log_structured
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,16 @@ def process_activity_notification(
         trace_id = get_trace_id(internal_user_id) or request_trace_id
         is_primary = i == 0
         sync_source = SyncSource.WEBHOOK if is_primary else SyncSource.LINKED_ACCOUNT
+        run_id = f"garmin_activity_{internal_user_id}_{request_trace_id}_{activity_id}"
+        capture(user_id=str(internal_user_id), run_id=run_id, payload=notification, kind="webhook_body")
+        backfill_trace = get_trace_id(internal_user_id)
+        if backfill_trace:
+            capture(
+                user_id=str(internal_user_id),
+                run_id=f"garmin_backfill_{internal_user_id}_{backfill_trace}",
+                payload=notification,
+                kind="webhook_body",
+            )
 
         log_structured(
             logger,
@@ -139,7 +150,7 @@ def process_activity_notification(
             internal_user_id,
             "garmin",
             sync_source,
-            run_id=new_run_id(prefix=f"garmin_webhook_activity_{activity_id}"),
+            run_id=run_id,
             status=SyncStatus.SUCCESS,
             message=f"Garmin activity received: {activity_name}",
             items_processed=len(created_ids),

@@ -243,6 +243,7 @@ function DeliveriesFilters({
   onChange: (patch: Partial<WebhookAttemptsParams>) => void;
 }) {
   const eventTypes = useWebhookEventTypes();
+  const [userId, setUserId] = useState(params.user_id ?? '');
   const [etOpen, setEtOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const selected = new Set(params.event_types ?? []);
@@ -277,6 +278,43 @@ function DeliveriesFilters({
 
   return (
     <div className="flex flex-wrap gap-3 items-center">
+      <form
+        className="flex flex-wrap items-center gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const value = userId.trim();
+          setUserId(value);
+          onChange({ user_id: value || undefined });
+        }}
+      >
+        <input
+          aria-label="Filter deliveries by user ID"
+          placeholder="User ID"
+          value={userId}
+          onChange={(event) => setUserId(event.target.value)}
+          pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+          title="Enter a valid user UUID"
+          className="min-w-0 w-72 max-w-full bg-card border border-border text-foreground/90 text-xs rounded-md px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+        <button
+          type="submit"
+          className="text-xs rounded-md border border-border px-3 py-1.5"
+        >
+          Apply
+        </button>
+        {(userId || params.user_id) && (
+          <button
+            type="button"
+            className="text-xs text-muted-foreground"
+            onClick={() => {
+              setUserId('');
+              onChange({ user_id: undefined });
+            }}
+          >
+            Clear user
+          </button>
+        )}
+      </form>
       <select
         className="bg-card border border-border text-foreground/90 text-xs rounded-md px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
         value={params.status ?? ''}
