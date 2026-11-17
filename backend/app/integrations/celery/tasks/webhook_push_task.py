@@ -16,7 +16,7 @@ from fastapi import HTTPException
 
 from app.database import SessionLocal
 from app.schemas.sync_status import SyncStatus
-from app.services import sync_status_service
+from app.services import received_data_service, sync_status_service
 from app.services.providers.factory import ProviderFactory
 from app.utils.structured_logging import log_structured
 
@@ -68,7 +68,7 @@ def _extract_breakdown(result: dict[str, Any], count: Any) -> dict[str, int] | N
     return {"inserted": inserted or 0, "updated": updated or 0}
 
 
-def _emit_webhook_sync_status(provider_name: str, result: Any) -> None:
+def _emit_webhook_sync_status(provider_name: str, result: Any, payload: Any = None, run_id: str | None = None) -> None:
     """Record a webhook delivery in the sync log (best-effort, never raises).
 
     Saves and errors become full run entries; ignored / duplicate / no-op
@@ -88,6 +88,11 @@ def _emit_webhook_sync_status(provider_name: str, result: Any) -> None:
         except (ValueError, TypeError):
             return
 
+        run_id = run_id or sync_status_service.new_run_id("wh")
+        received_data_service.flush_pending(str(user_id), run_id)
+        if payload is not None:
+            received_data_service.capture(user_id=str(user_id), run_id=run_id, payload=payload, kind="webhook_body")
+
         status_str = str(result.get("status") or "").lower()
         count = _extract_item_count(result)
         descriptor = result.get("data_type") or result.get("event_type") or ""
@@ -98,6 +103,7 @@ def _emit_webhook_sync_status(provider_name: str, result: Any) -> None:
             sync_status_service.webhook_delivered(
                 user_id,
                 provider_name,
+                run_id=run_id,
                 status=SyncStatus.FAILED,
                 error=str(result.get("error") or "unknown"),
                 message=f"webhook {descriptor}".strip(),
@@ -109,6 +115,7 @@ def _emit_webhook_sync_status(provider_name: str, result: Any) -> None:
             sync_status_service.webhook_delivered(
                 user_id,
                 provider_name,
+                run_id=run_id,
                 status=SyncStatus.SUCCESS,
                 items_processed=count,
                 message=f"webhook {detail}".strip(),
@@ -120,6 +127,7 @@ def _emit_webhook_sync_status(provider_name: str, result: Any) -> None:
             sync_status_service.webhook_delivered(
                 user_id,
                 provider_name,
+                run_id=run_id,
                 status=SyncStatus.SKIPPED,
                 items_processed=count,
                 message=f"skipped: {reason}".strip(),
@@ -150,9 +158,15 @@ def process_webhook_push(
         strategy = factory.get_provider(provider_name)
         if strategy.webhooks is None:
             raise ValueError(f"Provider '{provider_name}' has no webhook handler")
-        with SessionLocal() as db:
-            result = strategy.webhooks.process_payload(db, payload, request_trace_id)
-        _emit_webhook_sync_status(provider_name, result)
+        pending_token = received_data_service.begin_pending()
+        try:
+            with SessionLocal() as db:
+                result = strategy.webhooks.process_payload(db, payload, self.request.id or request_trace_id)
+            _emit_webhook_sync_status(
+                provider_name, result, payload, f"wh_{provider_name}_{self.request.id or request_trace_id}"
+            )
+        finally:
+            received_data_service.end_pending(pending_token)
         return result
     except ValueError as exc:
         # Configuration error (unknown provider, missing handler) — retrying won't help.

@@ -15,6 +15,7 @@ from app.services.apple.healthkit.import_service import (
 from app.services.apple.healthkit.import_service import (
     import_service as sdk_import_service,
 )
+from app.services.received_data_service import capture
 from app.services.sync_status_service import completed, failed, started
 from app.utils.structured_logging import log_structured
 
@@ -50,7 +51,7 @@ def process_sdk_upload(
     """
     # Generate batch_id if not provided (backwards compatibility)
     if not batch_id:
-        batch_id = str(uuid.uuid4())
+        batch_id = process_sdk_upload.request.id or str(uuid.uuid4())
 
     # Validate user_id format
     try:
@@ -81,6 +82,8 @@ def process_sdk_upload(
                 user_id=user_id,
             )
             return {"status": "skipped", "reason": "user_not_found", "batch_id": batch_id}
+
+    capture(user_id=user_id, run_id=batch_id, payload=content, kind="sdk_batch")
 
     # Log task start
     log_structured(

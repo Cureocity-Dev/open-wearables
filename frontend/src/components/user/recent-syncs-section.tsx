@@ -5,6 +5,7 @@ import { useRecentSyncs, useSyncRuns } from '@/hooks/api/use-sync-status';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import { SyncReceivedData } from '@/components/user/sync-received-data';
 import type { SyncRunSummary } from '@/lib/api';
 
 interface RecentSyncsSectionProps {
@@ -99,14 +100,17 @@ function RunRow({ run }: { run: SyncRunSummary }) {
           </p>
         )}
       </div>
-      <span
-        className={cn(
-          'shrink-0 rounded-full px-2.5 py-1 text-xs font-medium capitalize',
-          badgeClass
-        )}
-      >
-        {run.status.replace('_', ' ')}
-      </span>
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+        <SyncReceivedData userId={run.user_id} runId={run.run_id} />
+        <span
+          className={cn(
+            'shrink-0 rounded-full px-2.5 py-1 text-xs font-medium capitalize',
+            badgeClass
+          )}
+        >
+          {run.status.replace('_', ' ')}
+        </span>
+      </div>
     </div>
   );
 }
@@ -156,7 +160,7 @@ export function RecentSyncsSection({ userId }: RecentSyncsSectionProps) {
         <div className="rounded-lg border border-dashed bg-muted/20 p-8 text-center">
           <History className="mx-auto h-8 w-8 text-muted-foreground/40" />
           <p className="mt-2 text-sm text-muted-foreground">
-            No sync activity in the last 24 hours.
+            No sync activity in the last 72 hours.
           </p>
         </div>
       ) : (

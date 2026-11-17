@@ -9,6 +9,7 @@ Tests process_push task for:
 - Retry behaviour on infrastructure errors
 """
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -17,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.integrations.celery.tasks.webhook_push_task import process_webhook_push
 from app.schemas.auth import ConnectionStatus
+from app.services import received_data_service
 from tests.factories import UserConnectionFactory, UserFactory
 
 MODULE = "app.integrations.celery.tasks.webhook_push_task"
@@ -154,13 +156,28 @@ class TestGarminPushWebhook:
             ],
         }
 
-        # Act
-        result = process_webhook_push.run("garmin", payload, "trace-003")
+        # Retry uses the same task identity even if caller trace changes.
+        with (
+            patch.object(process_webhook_push.request, "id", "delivery-003"),
+            patch.object(
+                process_webhook_push.request, "headers", {"received_capture_created_at": datetime.now(UTC).isoformat()}
+            ),
+        ):
+            result = process_webhook_push.run("garmin", payload, "trace-003")
 
         # Assert
         assert result["processed"] == 2
         assert result["saved"] == 2
         assert len(result["activities"]) == 2
+        first_run = f"garmin_activity_{user1.id}_delivery-003_12345"
+        second_run = f"garmin_activity_{user2.id}_delivery-003_67890"
+        first = received_data_service.list_artifacts(str(user1.id), first_run)
+        second = received_data_service.list_artifacts(str(user2.id), second_run)
+        assert len(first["artifacts"]) == 1
+        assert len(second["artifacts"]) == 1
+        assert first["artifacts"][0]["artifact_id"] != second["artifacts"][0]["artifact_id"]
+        assert received_data_service.list_artifacts(str(user1.id), second_run)["artifacts"] == []
+        assert received_data_service.list_artifacts(str(user2.id), first_run)["artifacts"] == []
 
     def test_push_webhook_different_activity_types(
         self,

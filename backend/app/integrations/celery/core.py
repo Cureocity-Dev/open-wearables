@@ -10,6 +10,7 @@ from celery.schedules import crontab
 
 from app.config import settings
 from app.services import raw_payload_storage
+from app.services import received_data_service as _received_data_signals  # noqa: F401 - register publisher timestamp
 
 _WEBHOOK_TASK = "emit_webhook_event_task.emit_webhook_event"
 

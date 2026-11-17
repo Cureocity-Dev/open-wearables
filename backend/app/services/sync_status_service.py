@@ -31,6 +31,8 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
+from fastapi import HTTPException
+
 from app.integrations.redis_client import get_redis_client
 from app.schemas.sync_status import (
     SyncRunSummary,
@@ -39,11 +41,12 @@ from app.schemas.sync_status import (
     SyncStatus,
     SyncStatusEvent,
 )
+from app.services import received_data_service
 from app.utils.sse import format_comment, format_event
 
 logger = logging.getLogger(__name__)
 
-HISTORY_TTL_SECONDS = 24 * 60 * 60  # 24h
+HISTORY_TTL_SECONDS = 72 * 60 * 60  # 72h
 MAX_RECENT_EVENTS = 200
 SSE_HEARTBEAT_SECONDS = 15.0
 SSE_POLL_TIMEOUT_SECONDS = 1.0
@@ -67,6 +70,19 @@ def _user_runs_key(user_id: str | UUID) -> str:
 
 def _run_key(run_id: str) -> str:
     return f"sync:status:run:{run_id}"
+
+
+def ensure_run_owner(user_id: UUID, run_id: str) -> None:
+    """Validate relationship using live run metadata or retained capture tombstones."""
+    client = get_redis_client()
+    raw = client.get(_run_key(run_id))
+    if raw is not None:
+        if SyncStatusEvent.model_validate_json(raw).user_id == user_id:
+            return
+        raise HTTPException(404, "Run not found")
+    if client.exists(received_data_service._index_key(str(user_id), run_id) + ":expiry"):
+        return
+    raise HTTPException(404, "Run not found")
 
 
 def new_run_id(prefix: str = "run") -> str:
@@ -514,6 +530,7 @@ def webhook_delivered(
     message: str | None = None,
     error: str | None = None,
     metadata: dict[str, Any] | None = None,
+    run_id: str | None = None,
 ) -> SyncStatusEvent:
     """Record a single webhook delivery as a self-contained sync run.
 
@@ -533,7 +550,7 @@ def webhook_delivered(
         source=SyncSource.WEBHOOK,
         stage=stage,
         status=status,
-        run_id=new_run_id("wh"),
+        run_id=run_id or new_run_id("wh"),
         message=message,
         items_processed=items_processed,
         error=error,

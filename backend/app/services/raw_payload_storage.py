@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+from app.services import received_data_service
 from app.utils.structured_logging import json_serial, log_structured
 
 logger = logging.getLogger(__name__)
@@ -101,6 +102,8 @@ def store_raw_payload(
         user_id: Optional user identifier for correlation
         trace_id: Optional trace/batch ID for correlation with processed data
     """
+    if source == "api_response" and user_id:
+        received_data_service.capture_response(user_id, payload)
     if _storage_backend == "disabled":
         return
 

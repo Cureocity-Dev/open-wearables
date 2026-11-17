@@ -12,6 +12,7 @@ from app.repositories.user_connection_repository import UserConnectionRepository
 from app.schemas.auth import LiveSyncMode
 from app.schemas.responses.upload import ProviderSyncResult, SyncVendorDataResult
 from app.schemas.sync_status import SyncSource, SyncStage, SyncStatus
+from app.services import received_data_service
 from app.services.providers.factory import ProviderFactory
 from app.services.sync_coordination import release_primary, release_stale_primary, try_become_primary
 from app.services.sync_status_service import completed, failed, new_run_id, progress, started
@@ -166,7 +167,8 @@ def sync_vendor_data(
                     user_id=user_id,
                 )
 
-                run_id = new_run_id(prefix="pull")
+                task_id = sync_vendor_data.request.id
+                run_id = f"pull_{user_id}_{provider_name}_{task_id}" if task_id else new_run_id(prefix="pull")
                 primary_uuid: UUID | None = None
                 if _linked_primary_user_id:
                     with suppress(ValueError):
@@ -247,6 +249,7 @@ def sync_vendor_data(
                     },
                 )
 
+                capture_token = received_data_service.begin(str(user_uuid), run_id)
                 try:
                     strategy = factory.get_provider(provider_name)
                     provider_result = ProviderSyncResult(success=True, params={})
@@ -515,6 +518,8 @@ def sync_vendor_data(
                     )
                     result.errors[provider_name] = str(e)
                     continue
+                finally:
+                    received_data_service.end(capture_token)
 
             return result.model_dump()
 

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
 import app.services.sync_status_service as sync_status_service
 from app.schemas.sync_status import SyncSource, SyncStage, SyncStatus, SyncStatusEvent
+from app.services import received_data_service
 from tests.factories import UserFactory
 
 
@@ -98,6 +101,40 @@ class TestRunsEndpoint:
         assert len(body) == 1
         assert body[0]["run_id"] == run_id
         assert body[0]["status"] == SyncStatus.SUCCESS.value
+
+
+class TestReceivedDataEndpoint:
+    def test_preview_mismatch_and_expired(self, client: TestClient, api_key_header: dict[str, str]) -> None:
+        user = UserFactory()
+        other = UserFactory()
+        event = _emit(user.id)
+        received_data_service.capture(user_id=str(user.id), run_id=event.run_id, payload=[1], kind="sdk_batch")
+        artifact = received_data_service.list_artifacts(str(user.id), event.run_id)["artifacts"][0]
+        path = f"/api/v1/users/{user.id}/sync/runs/{event.run_id}/received-data/{artifact['artifact_id']}"
+        assert client.get(path).status_code in (401, 403)
+        assert client.get(path.replace(str(user.id), str(other.id)), headers=api_key_header).status_code == 404
+        with patch.object(received_data_service, "_now", return_value=datetime.now(UTC) + timedelta(hours=73)):
+            assert client.get(path, headers=api_key_header).status_code == 410
+            response = client.get(path.rsplit("/", 1)[0], headers=api_key_header)
+            assert response.json()["capture_status"] == "expired"
+
+    def test_unknown_run_and_auth(self, client: TestClient, api_key_header: dict[str, str]) -> None:
+        user = UserFactory()
+        path = f"/api/v1/users/{user.id}/sync/runs/unknown/received-data"
+        assert client.get(path, headers=api_key_header).status_code == 404
+        assert client.get(path).status_code in (401, 403)
+
+    def test_known_run_and_wrong_user(self, client: TestClient, api_key_header: dict[str, str]) -> None:
+        user = UserFactory()
+        other = UserFactory()
+        event = _emit(user.id)
+        path = f"/api/v1/users/{user.id}/sync/runs/{event.run_id}/received-data"
+        response = client.get(path, headers=api_key_header)
+        assert response.status_code == 200
+        assert response.json()["capture_status"] in ("not_captured", "unavailable")
+        assert response.json()["artifacts"] == []
+        assert client.get(path.replace(str(user.id), str(other.id)), headers=api_key_header).status_code == 404
+        assert client.get(path + "?limit=101", headers=api_key_header).status_code == 400
 
 
 # Note: The actual streaming endpoint behaviour (replay + heartbeat + pubsub
