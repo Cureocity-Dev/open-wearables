@@ -84,8 +84,16 @@ jobs:
           mkdir -p ~/open-wearables
           cd ~/open-wearables
 
-          # If not a git repo, clone it
+          # If not a git repo, clone it. dev-infra's self-heal boot script
+          # pre-seeds this directory with docker-compose.yml + .env from S3
+          # (so containers can start before a deploy ever runs), so on a
+          # freshly-replaced instance this is a non-empty directory with no
+          # .git - `git clone .` into it fails with "already exists and is
+          # not an empty directory" unless it's emptied first. Safe to wipe:
+          # the clone recreates docker-compose.yml, and .env is restored
+          # again later in this same script.
           if [ ! -d .git ]; then
+            find . -mindepth 1 -delete
             git clone git@github-wearable:__GH_REPOSITORY__.git .
           fi
 
