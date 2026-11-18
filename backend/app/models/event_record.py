@@ -1,5 +1,6 @@
-from uuid import UUID
 from datetime import datetime
+from typing import TYPE_CHECKING
+from uuid import UUID
 
 from sqlalchemy import Index
 from sqlalchemy.orm import Mapped, relationship
@@ -14,10 +15,14 @@ from app.mappings import (
     str_100,
 )
 
+if TYPE_CHECKING:
+    from app.models.event_record_detail import EventRecordDetail
+
 
 class EventRecord(BaseDbModel):
     __tablename__ = "event_record"
     __table_args__ = (
+        Index("ix_event_record_source_id", "data_source_id", "id"),
         Index("ix_event_record_source_category", "data_source_id", "category"),
         Index("ix_event_record_source_time", "data_source_id", "start_datetime", "end_datetime", unique=True),
     )
