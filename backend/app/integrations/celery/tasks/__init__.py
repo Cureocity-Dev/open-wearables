@@ -39,6 +39,7 @@ from .periodic_sync_task import sync_all_users
 from .process_aws_upload_task import process_aws_upload
 from .process_sdk_upload_task import process_sdk_upload
 from .process_xml_upload_task import process_xml_upload
+from .received_capture_cleanup_task import cleanup_received_captures
 from .register_provider_webhooks_task import register_provider_webhooks
 from .renew_oura_webhooks_task import renew_oura_webhooks
 from .seed_data_task import generate_seed_data
@@ -61,6 +62,7 @@ __all__ = [
     "gc_stuck_backfills",
     # Archival
     "run_daily_archival",
+    "cleanup_received_captures",
     # Sleep score calculation
     "fill_missing_sleep_scores",
     # Resilience score calculation
