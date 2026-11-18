@@ -3,6 +3,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from logging import getLogger
+from typing import cast
 from uuid import UUID, uuid4
 
 from app.config import settings
@@ -13,6 +14,7 @@ from app.constants.series_types.sdk import (
 from app.constants.sleep import SleepStageType
 from app.database import DbSession
 from app.integrations.redis_client import get_redis_client
+from app.models.sleep_details import SleepDetails
 from app.schemas.model_crud.activities import (
     EventRecordCreate,
     EventRecordDetailCreate,
@@ -521,8 +523,9 @@ def finish_sleep(db_session: DbSession, user_id: str, state: SleepState) -> bool
         # Deserialise the stored stages back to SleepStateStage so we can feed
         # them into _calculate_final_metrics together with the new stages.
         existing_state_stages: list[SleepStateStage] = []
-        if adjacent.detail and adjacent.detail.sleep_stages:
-            for s in adjacent.detail.sleep_stages:
+        detail = cast(SleepDetails | None, adjacent.detail)
+        if detail and detail.sleep_stages:
+            for s in detail.sleep_stages:
                 with contextlib.suppress(Exception):
                     existing_state_stages.append(SleepStateStage.model_validate(s))
 

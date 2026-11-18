@@ -103,6 +103,22 @@ class TestRunsEndpoint:
         assert body[0]["status"] == SyncStatus.SUCCESS.value
 
 
+class TestSavedDataEndpoint:
+    def test_scope_auth_and_limits(self, client: TestClient, api_key_header: dict[str, str]) -> None:
+        user = UserFactory()
+        other = UserFactory()
+        event = _emit(user.id)
+        path = f"/api/v1/users/{user.id}/sync/runs/{event.run_id}/saved-data"
+        assert client.get(path).status_code in (401, 403)
+        response = client.get(path, headers=api_key_header)
+        assert response.status_code == 200
+        assert response.json()["scope"] == "user_provider"
+        assert response.json()["records"] == []
+        assert client.get(path.replace(str(user.id), str(other.id)), headers=api_key_header).status_code == 404
+        assert client.get(path + "?limit=101", headers=api_key_header).status_code == 400
+        assert client.get(path + "?cursor=bad", headers=api_key_header).status_code == 400
+
+
 class TestReceivedDataEndpoint:
     def test_preview_mismatch_and_expired(self, client: TestClient, api_key_header: dict[str, str]) -> None:
         user = UserFactory()

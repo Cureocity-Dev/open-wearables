@@ -10,7 +10,8 @@ import json
 import threading
 import time
 from collections.abc import Generator
-from unittest.mock import patch
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -91,6 +92,115 @@ class TestEmitAndPersist:
         assert summary.stage == SyncStage.COMPLETED.value
         assert summary.status == SyncStatus.SUCCESS.value
         assert summary.items_processed == 7
+
+
+class TestRunSummaryBatching:
+    def test_admin_batches_reads_across_users_and_bounds_pipeline_size(self) -> None:
+        client = get_redis_client()
+        user_ids = [str(uuid4()) for _ in range(3)]
+        events = []
+        for uid in user_ids:
+            for _ in range(3):
+                event = _build_event(uid)
+                events.append(event)
+                client.sadd(sync_status_service._user_runs_key(uid), event.run_id)
+                client.set(sync_status_service._run_key(event.run_id), event.model_dump_json())
+        command_counts = []
+        original_pipeline = client.pipeline
+
+        def tracked_pipeline(*args: object, **kwargs: object) -> object:
+            pipe = original_pipeline(*args, **kwargs)
+            original_execute = pipe.execute
+
+            def execute() -> list[object]:
+                command_counts.append(len(pipe.command_stack))
+                return original_execute()
+
+            pipe.execute = MagicMock(side_effect=execute)
+            return pipe
+
+        with (
+            patch.object(sync_status_service, "SUMMARY_READ_BATCH_SIZE", 2, create=True),
+            patch.object(client, "scan", return_value=(0, [sync_status_service._user_runs_key(u) for u in user_ids])),
+            patch.object(client, "pipeline", side_effect=tracked_pipeline),
+            patch.object(client, "smembers", wraps=client.smembers) as smembers,
+            patch.object(client, "lrange", wraps=client.lrange) as lrange,
+        ):
+            summaries = sync_status_service.get_all_run_summaries()
+
+        assert {s.run_id for s in summaries} == {e.run_id for e in events}
+        assert len(command_counts) == 7  # Two user batches and five latest-event batches.
+        assert max(command_counts) <= 4  # Two metadata commands per user.
+        smembers.assert_not_called()
+        lrange.assert_not_called()
+
+    def test_admin_keeps_per_user_limit_before_filters(self) -> None:
+        client = get_redis_client()
+        uid = str(uuid4())
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        for index in range(3):
+            event = _build_event(uid).model_copy(
+                update={
+                    "timestamp": start + timedelta(seconds=index),
+                    "provider": "fitbit" if index == 0 else "garmin",
+                }
+            )
+            client.sadd(sync_status_service._user_runs_key(uid), event.run_id)
+            client.set(sync_status_service._run_key(event.run_id), event.model_dump_json())
+
+        with patch.object(sync_status_service, "MAX_RECENT_EVENTS", 2):
+            assert sync_status_service.get_all_run_summaries(user_id_filter=uid, provider_filter="fitbit") == []
+            summaries = sync_status_service.get_all_run_summaries(user_id_filter=uid)
+        assert len(summaries) == 2
+        assert [s.last_update for s in summaries] == [start + timedelta(seconds=2), start + timedelta(seconds=1)]
+        assert len(sync_status_service.get_run_summaries(uid)) == 3
+
+    def test_filters_order_recovery_and_invalid_or_expired_events(self) -> None:
+        client = get_redis_client()
+        uid = str(uuid4())
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        first = _build_event(uid).model_copy(update={"started_at": start})
+        newer_start = first.model_copy(update={"started_at": start + timedelta(seconds=1)})
+        terminal = first.model_copy(
+            update={
+                "started_at": None,
+                "ended_at": start + timedelta(seconds=10),
+                "timestamp": start + timedelta(seconds=10),
+                "stage": SyncStage.COMPLETED,
+                "status": SyncStatus.SUCCESS,
+                "items_processed": 7,
+                "message": "Saved",
+            }
+        )
+        other = _build_event(uid).model_copy(update={"timestamp": start + timedelta(seconds=20)})
+        for event in (terminal, other):
+            client.sadd(sync_status_service._user_runs_key(uid), event.run_id)
+            client.set(sync_status_service._run_key(event.run_id), event.model_dump_json())
+        client.sadd(sync_status_service._user_runs_key(uid), "expired", "invalid")
+        client.set(sync_status_service._run_key("invalid"), "not-json")
+        client.rpush(
+            sync_status_service._user_recent_key(uid),
+            "not-json",
+            newer_start.model_dump_json(),
+            first.model_dump_json(),
+        )
+
+        summaries = sync_status_service.get_run_summaries(uid, limit=1)
+        assert [s.run_id for s in summaries] == [other.run_id]
+        with patch.object(client, "scan") as scan:
+            summaries = sync_status_service.get_all_run_summaries(
+                limit=1, user_id_filter=uid, provider_filter="garmin", status_filter="success", source_filter="pull"
+            )
+        scan.assert_not_called()
+        assert len(summaries) == 1
+        summary = summaries[0]
+        assert summary.run_id == terminal.run_id
+        assert summary.started_at == newer_start.started_at
+        assert summary.ended_at == terminal.ended_at
+        assert summary.items_processed == 7
+        assert summary.message == "Saved"
+        assert sync_status_service.get_all_run_summaries(user_id_filter=uid, provider_filter="fitbit") == []
+        assert sync_status_service.get_run_summaries(str(uuid4())) == []
 
 
 class TestTerminalSvixDispatch:

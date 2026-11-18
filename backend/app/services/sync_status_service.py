@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 
 HISTORY_TTL_SECONDS = 72 * 60 * 60  # 72h
 MAX_RECENT_EVENTS = 200
+SUMMARY_READ_BATCH_SIZE = 200
 SSE_HEARTBEAT_SECONDS = 15.0
 SSE_POLL_TIMEOUT_SECONDS = 1.0
 
@@ -233,54 +234,69 @@ def get_run_summaries(user_id: str | UUID, limit: int = 20) -> list[SyncRunSumma
     ``started_at``; we recover it by scanning the recent-events list once
     and building a run → started_at lookup so duration can be calculated.
     """
+    return _get_users_run_summaries([str(user_id)], limit)
+
+
+def _get_users_run_summaries(user_ids: list[str], per_user_limit: int) -> list[SyncRunSummary]:
+    """Read user metadata and latest events in bounded, non-transactional batches."""
     client = get_redis_client()
+    all_summaries: list[SyncRunSummary] = []
+    for offset in range(0, len(user_ids), SUMMARY_READ_BATCH_SIZE):
+        batch = user_ids[offset : offset + SUMMARY_READ_BATCH_SIZE]
+        pipe = client.pipeline(transaction=False)
+        for uid in batch:
+            pipe.smembers(_user_runs_key(uid))
+            pipe.lrange(_user_recent_key(uid), 0, MAX_RECENT_EVENTS - 1)
+        metadata = pipe.execute()
 
-    raw_run_ids: set[str | bytes] = client.smembers(_user_runs_key(user_id))
-    if not raw_run_ids:
-        return []
+        started_at_by_user: list[dict[str, datetime]] = []
+        runs: list[tuple[int, str]] = []
+        summaries_by_user: list[list[SyncRunSummary]] = [[] for _ in batch]
+        for index in range(len(batch)):
+            raw_run_ids, recent_events = metadata[index * 2 : index * 2 + 2]
+            started_at_by_run: dict[str, datetime] = {}
+            for raw in recent_events:
+                with suppress(ValueError, TypeError):
+                    event = SyncStatusEvent.model_validate_json(raw)
+                    if event.started_at is not None:
+                        started_at_by_run.setdefault(event.run_id, event.started_at)
+            started_at_by_user.append(started_at_by_run)
+            runs.extend((index, rid if isinstance(rid, str) else rid.decode("utf-8")) for rid in raw_run_ids)
 
-    run_ids = [r if isinstance(r, str) else r.decode("utf-8") for r in raw_run_ids]
-
-    # Build started_at lookup from the recent-events list.  Terminal events
-    # don't carry started_at, so we need this to compute run duration.
-    started_at_by_run: dict[str, datetime] = {}
-    for evt in get_recent_events(user_id, limit=MAX_RECENT_EVENTS):
-        if evt.started_at is not None and evt.run_id not in started_at_by_run:
-            started_at_by_run[evt.run_id] = evt.started_at
-
-    pipe = client.pipeline(transaction=False)
-    for rid in run_ids:
-        pipe.get(_run_key(rid))
-    raw_events = pipe.execute()
-
-    summaries: list[SyncRunSummary] = []
-    for item in raw_events:
-        if not item:
-            continue
-        with suppress(ValueError, TypeError):
-            event = SyncStatusEvent.model_validate_json(item)
-            summaries.append(
-                SyncRunSummary(
-                    run_id=event.run_id,
-                    user_id=event.user_id,
-                    provider=event.provider,
-                    source=str(event.source),
-                    stage=str(event.stage),
-                    status=str(event.status),
-                    message=event.message,
-                    progress=event.progress,
-                    items_processed=event.items_processed,
-                    items_total=event.items_total,
-                    error=event.error,
-                    started_at=event.started_at or started_at_by_run.get(event.run_id),
-                    ended_at=event.ended_at,
-                    primary_user_id=event.primary_user_id,
-                    last_update=event.timestamp,
-                )
-            )
-
-    summaries.sort(key=lambda s: s.last_update, reverse=True)
-    return summaries[:limit]
+        # Keys can expire or writers can update runs between these reads, as before.
+        for run_offset in range(0, len(runs), SUMMARY_READ_BATCH_SIZE):
+            run_batch = runs[run_offset : run_offset + SUMMARY_READ_BATCH_SIZE]
+            pipe = client.pipeline(transaction=False)
+            for _, rid in run_batch:
+                pipe.get(_run_key(rid))
+            for (index, _), item in zip(run_batch, pipe.execute(), strict=True):
+                if not item:
+                    continue
+                with suppress(ValueError, TypeError):
+                    event = SyncStatusEvent.model_validate_json(item)
+                    summaries_by_user[index].append(
+                        SyncRunSummary(
+                            run_id=event.run_id,
+                            user_id=event.user_id,
+                            provider=event.provider,
+                            source=str(event.source),
+                            stage=str(event.stage),
+                            status=str(event.status),
+                            message=event.message,
+                            progress=event.progress,
+                            items_processed=event.items_processed,
+                            items_total=event.items_total,
+                            error=event.error,
+                            started_at=event.started_at or started_at_by_user[index].get(event.run_id),
+                            ended_at=event.ended_at,
+                            primary_user_id=event.primary_user_id,
+                            last_update=event.timestamp,
+                        )
+                    )
+        for summaries in summaries_by_user:
+            summaries.sort(key=lambda s: s.last_update, reverse=True)
+            all_summaries.extend(summaries[:per_user_limit])
+    return all_summaries
 
 
 def get_all_run_summaries(
@@ -313,9 +329,7 @@ def get_all_run_summaries(
             if cursor == 0:
                 break
 
-    all_summaries: list[SyncRunSummary] = []
-    for uid in user_ids:
-        all_summaries.extend(get_run_summaries(uid, limit=MAX_RECENT_EVENTS))
+    all_summaries = _get_users_run_summaries(user_ids, per_user_limit=MAX_RECENT_EVENTS)
 
     if provider_filter:
         all_summaries = [s for s in all_summaries if s.provider == provider_filter]

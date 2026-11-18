@@ -30,6 +30,7 @@ from app.database import DbSession
 from app.schemas.received_data import ReceivedArtifactPreview, ReceivedDataList
 from app.schemas.sync_status import SyncRunSummary, SyncStatusEvent
 from app.services import ApiKeyDep, received_data_service, user_service
+from app.services.sync_saved_data_service import get_saved_data
 from app.services.sync_status_service import (
     ensure_run_owner,
     get_all_run_summaries,
@@ -188,6 +189,20 @@ def preview_received_data(
     _ensure_user_exists(db, user_id)
     ensure_run_owner(user_id, run_id)
     return received_data_service.preview(str(user_id), run_id, artifact_id, limit=limit, cursor=cursor)
+
+
+@router.get("/users/{user_id}/sync/runs/{run_id}/saved-data")
+def list_saved_sync_data(
+    user_id: UUID,
+    run_id: str,
+    db: DbSession,
+    _api_key: ApiKeyDep,
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    cursor: str | None = None,
+) -> dict:
+    """Read current normalized records for the run's user and provider, not a run snapshot."""
+    _ensure_user_exists(db, user_id)
+    return get_saved_data(db, user_id, run_id, limit=limit, cursor=cursor)
 
 
 __all__ = ["router"]

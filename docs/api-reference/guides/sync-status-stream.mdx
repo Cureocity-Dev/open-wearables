@@ -53,6 +53,14 @@ The SSE endpoint also supports webhooks — if you have outgoing webhook endpoin
 
 ---
 
+## Saved Data Inspection
+
+The dashboard's **View data** button loads current processed measurements and events from PostgreSQL only when opened. Sync list requests do not load record bodies. Pages contain at most 100 records. Fresh pages are cached in the browser for 30 seconds.
+
+`GET /api/v1/users/{user_id}/sync/runs/{run_id}/saved-data?limit=100` returns `user_id`, `run_id`, `provider`, `scope: "user_provider"`, `records`, and `next_cursor`. Pass the opaque `next_cursor` as `cursor` for the next page. Records use stable type/UUID order, not time order. The endpoint reads the run's user and provider from retained sync metadata and filters database records by both. It never counts all records. Authentication matches the sync endpoints. Invalid cursors return `400`; missing or mismatched users/runs return `404`.
+
+**These records are not linked to individual sync runs.** They are current saved data for the selected user and provider, not original input or an immutable run snapshot. Measurements include their series type ID, value and recorded time. Events include category, start/end time and duration. Detailed workout/sleep payloads and archived measurements are not included. Updated or deleted records can change between pages. A run must still exist in Redis to resolve its provider.
+
 ## Received Data Inspection
 
 Received data is captured at ingestion time, never reconstructed from current database rows. Existing runs are not retroactively captured. Bodies are not included in run lists or SSE messages.

@@ -44,7 +44,22 @@ function path(userId: string, runId: string): string {
   return `/api/v1/users/${encodeURIComponent(userId)}/sync/runs/${encodeURIComponent(runId)}/received-data`;
 }
 
+export interface SavedSyncData {
+  user_id: string;
+  run_id: string;
+  provider: string;
+  scope: 'user_provider';
+  records: Record<string, unknown>[];
+  next_cursor: string | null;
+}
+
 export const syncReceivedDataService = {
+  saved(userId: string, runId: string, cursor?: string | null) {
+    return apiClient.get<SavedSyncData>(
+      `/api/v1/users/${encodeURIComponent(userId)}/sync/runs/${encodeURIComponent(runId)}/saved-data`,
+      { params: { limit: 100, ...(cursor ? { cursor } : {}) } }
+    );
+  },
   list(userId: string, runId: string, cursor?: string | null) {
     return apiClient.get<ReceivedData>(path(userId, runId), {
       params: { limit: 20, ...(cursor ? { cursor } : {}) },
