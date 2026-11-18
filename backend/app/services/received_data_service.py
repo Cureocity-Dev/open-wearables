@@ -1,6 +1,6 @@
 """Best-effort immutable, user/run-scoped ingestion snapshots.
 
-Redis holds metadata only; private S3 holds bodies. Absolute expiry is allocated
+Redis holds metadata only; PostgreSQL holds bodies. Absolute expiry is allocated
 once with SET NX so retries and concurrent writers cannot extend retention.
 """
 
@@ -17,7 +17,7 @@ from celery import current_task, signals
 from fastapi import HTTPException
 
 from app.integrations.redis_client import get_redis_client
-from app.services import raw_payload_storage
+from app.services.received_capture_storage import received_capture_storage
 from app.utils.structured_logging import json_serial
 
 logger = logging.getLogger(__name__)
@@ -76,9 +76,7 @@ def _now() -> datetime:
 
 
 def _storage() -> tuple[Any, str | None]:
-    if raw_payload_storage._storage_backend != "s3":
-        return None, None
-    return raw_payload_storage._s3_client, raw_payload_storage._s3_bucket
+    return received_capture_storage, "postgresql"
 
 
 def _index_key(user_id: str, run_id: str) -> str:

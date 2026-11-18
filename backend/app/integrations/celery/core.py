@@ -131,6 +131,10 @@ def create_celery() -> Celery:
             "args": (),
             "kwargs": {},
         },
+        "cleanup-received-captures": {
+            "task": "app.integrations.celery.tasks.received_capture_cleanup_task.cleanup_received_captures",
+            "schedule": 3600.0,
+        },
         "run-daily-archival": {
             "task": "app.integrations.celery.tasks.archival_task.run_daily_archival",
             "schedule": crontab(hour=3, minute=0),  # Daily at 03:00 UTC
