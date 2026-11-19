@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.integrations.redis_client import get_redis_client
 from app.repositories.sync_saved_data_repository import read_saved_records
+from app.schemas.enums.series_types import SERIES_TYPE_ENUM_BY_ID, get_series_type_unit
 from app.schemas.sync_status import SyncStatusEvent
 
 
@@ -45,6 +46,17 @@ def get_saved_data(
     if has_more:
         last = rows[-1]
         next_cursor = base64.urlsafe_b64encode(json.dumps([last["record_type"], str(last["id"])]).encode()).decode()
+    for row in rows:
+        if row["record_type"] != "measurement":
+            continue
+        series_type = SERIES_TYPE_ENUM_BY_ID.get(row["series_type_id"])
+        row["series_type"] = series_type.value if series_type is not None else None
+        row["series_type_name"] = (
+            series_type.value.replace("_", " ").capitalize()
+            if series_type is not None
+            else f"Unknown metric (ID: {row['series_type_id']})"
+        )
+        row["unit"] = get_series_type_unit(series_type) if series_type is not None else None
     return {
         "user_id": str(user_id),
         "run_id": run_id,
