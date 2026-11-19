@@ -28,7 +28,18 @@ def test_saved_data_empty_and_unknown_run(db: Session) -> None:
     assert result["next_cursor"] is None
 
 
-def test_saved_data_owner_provider_and_pagination(db: Session) -> None:
+@pytest.mark.parametrize(
+    ("series_type_id", "series_type", "series_type_name", "unit"),
+    [
+        (1, "heart_rate", "Heart rate", "bpm"),
+        (2, "resting_heart_rate", "Resting heart rate", "bpm"),
+        (81, "energy", "Energy", "kcal"),
+        (100, "distance_walking_running", "Distance walking running", "meters"),
+    ],
+)
+def test_saved_data_owner_provider_and_pagination(
+    db: Session, series_type_id: int, series_type: str, series_type_name: str, unit: str
+) -> None:
     user = UserFactory()
     other = UserFactory()
     now = datetime.now(UTC)
@@ -48,13 +59,18 @@ def test_saved_data_owner_provider_and_pagination(db: Session) -> None:
                     data_source_id=source.id,
                     recorded_at=now + timedelta(seconds=value),
                     value=value,
-                    series_type_definition_id=1,
+                    series_type_definition_id=series_type_id,
                 )
             )
     db.flush()
     sync_status_service.started(user_id=user.id, provider="apple", source="sdk", run_id="run")
     first = get_saved_data(db, user.id, "run", limit=2)
     assert len(first["records"]) == 2
+    for record in first["records"]:
+        assert record["series_type_id"] == series_type_id
+        assert record["series_type"] == series_type
+        assert record["series_type_name"] == series_type_name
+        assert record["unit"] == unit
     assert first["next_cursor"]
     second = get_saved_data(db, user.id, "run", limit=2, cursor=first["next_cursor"])
     assert len(second["records"]) == 1
