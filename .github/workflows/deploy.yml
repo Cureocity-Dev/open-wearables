@@ -85,6 +85,7 @@ jobs:
           # normal cache is fine and fast). Builds app + frontend; the shared
           # open-wearables-platform:latest image is produced by the app build.
           docker compose build
+          
 
           # Clean restart. --force-recreate recreates EVERY container — without
           # it, worker/beat/flower keep the old container (they share the
