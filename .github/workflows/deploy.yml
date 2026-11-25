@@ -1,122 +1,144 @@
-name: Deploy to EC2
+name: Build and Deploy to UAT
 
+# Two phases: build the backend/frontend images and push them to this
+# stack's private ECR repos, then SSM into the current uat-infra instance to
+# pull the new images and recreate the containers. Replaces the old
+# git-clone-and-build-on-the-box model, which only ever worked against the
+# pre-migration cureocity-uat host (ec2-user, SSH deploy key) and has no
+# equivalent on uat-infra (ubuntu user, no deploy key, images are pulled from
+# ECR instead of built locally - see the Terraform user-data bootstrap).
 on:
   push:
     branches:
       - uat-deploy
-  # Manual runs from the GitHub UI: Actions -> "Deploy to EC2" -> Run workflow
-  # -> pick any branch. github.ref_name below resolves to that branch.
+  # Manual runs from the GitHub UI: Actions -> "Build and Deploy to UAT" -> Run workflow
   workflow_dispatch:
 
 permissions:
   id-token: write # required to mint the OIDC token for AssumeRoleWithWebIdentity
   contents: read
 
+env:
+  AWS_REGION: ap-south-1
+  ECR_REGISTRY: 845021709999.dkr.ecr.ap-south-1.amazonaws.com
+  PLATFORM_REPO: cureocity-uat-infra/open-wearables-platform
+  FRONTEND_REPO: cureocity-uat-infra/open-wearables-frontend
+  # Tags the uat-infra box actually pulls (must match the Terraform
+  # open_wearables_platform_tag / open_wearables_frontend_tag defaults, and
+  # the image: lines in docker-compose.yml).
+  PLATFORM_TAG: latest
+  FRONTEND_TAG: dev
+
 jobs:
-  deploy:
+  build-and-push:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # Port 22 on the UAT box is locked down to Jenkins' static IP, so a
-      # GitHub-hosted runner (no fixed IP) can never reach it over SSH.
-      # Deploy via SSM Run Command instead - no inbound access needed at all.
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::845021709999:role/github-actions-open-wearables-uat-deploy
-          aws-region: ap-south-1
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Deploy to EC2 via SSM
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend/platform image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.PLATFORM_REPO }}:${{ env.PLATFORM_TAG }}
+            ${{ env.ECR_REGISTRY }}/${{ env.PLATFORM_REPO }}:${{ github.sha }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=backend-uat
+          cache-to: type=gha,mode=max,scope=backend-uat
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile.dev
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.FRONTEND_REPO }}:${{ env.FRONTEND_TAG }}
+            ${{ env.ECR_REGISTRY }}/${{ env.FRONTEND_REPO }}:${{ github.sha }}
+          cache-from: type=gha,scope=frontend-uat
+          cache-to: type=gha,mode=max,scope=frontend-uat
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::845021709999:role/github-actions-open-wearables-uat-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve current uat-infra instance
+        id: resolve
+        # The instance ID changes on every spot-interruption replacement, so
+        # it can never be hardcoded here - look it up by the Name tag the
+        # ASG's launch template always sets (cureocity-uat-infra Terraform
+        # stack), same way the IAM policy scopes ssm:SendCommand.
+        run: |
+          set -euo pipefail
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=cureocity-uat-infra" "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].InstanceId" --output text)
+          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+            echo "No running cureocity-uat-infra instance found" >&2
+            exit 1
+          fi
+          echo "Resolved uat-infra instance: $INSTANCE_ID"
+          echo "instance_id=$INSTANCE_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy to uat-infra via SSM
         env:
-          INSTANCE_ID: i-074862024a4719e67
-          GH_REPOSITORY: ${{ github.repository }}
-          GH_REF_NAME: ${{ github.ref_name }}
+          INSTANCE_ID: ${{ steps.resolve.outputs.instance_id }}
+          ECR_REGISTRY: ${{ env.ECR_REGISTRY }}
+          PLATFORM_REPO: ${{ env.PLATFORM_REPO }}
+          FRONTEND_REPO: ${{ env.FRONTEND_REPO }}
+          PLATFORM_TAG: ${{ env.PLATFORM_TAG }}
+          FRONTEND_TAG: ${{ env.FRONTEND_TAG }}
+          AWS_REGION: ${{ env.AWS_REGION }}
           GH_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
 
-          cat > /tmp/deploy.sh <<'SCRIPT'
-          # SSM Run Command executes this as root with no $HOME. The real
-          # checkout at /home/ec2-user/open-wearables is owned by ec2-user,
-          # and only ec2-user has the SSH deploy key for the github-wearable
-          # host alias - running the actual deploy as root would hit "dial
-          # ... dubious ownership" and a missing-SSH-key clone failure
-          # without ever touching Docker. Run the real work as ec2-user.
+          cat > /tmp/deploy.sh <<SCRIPT
           set -euo pipefail
 
-          cat > /tmp/ow-deploy-inner.sh <<'INNER'
-          # Fail the deploy if any command fails (previously a failed
-          # git pull was silently ignored, so stale code kept building).
-          set -euo pipefail
+          aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
 
-          # Navigate to project directory
-          mkdir -p ~/open-wearables
-          cd ~/open-wearables
+          docker pull ${ECR_REGISTRY}/${PLATFORM_REPO}:${PLATFORM_TAG}
+          docker tag ${ECR_REGISTRY}/${PLATFORM_REPO}:${PLATFORM_TAG} open-wearables-platform:${PLATFORM_TAG}
 
-          # If not a git repo, clone it
-          if [ ! -d .git ]; then
-            git clone git@github-wearable:__GH_REPOSITORY__.git .
-          fi
+          docker pull ${ECR_REGISTRY}/${FRONTEND_REPO}:${FRONTEND_TAG}
+          docker tag ${ECR_REGISTRY}/${FRONTEND_REPO}:${FRONTEND_TAG} open-wearables-frontend:${FRONTEND_TAG}
 
-          # Force the checkout to exactly match the pushed branch. A plain
-          # `git pull` aborts on a dirty/diverged tree, leaving old source on
-          # disk. fetch + hard reset guarantees the build uses the new code.
-          git fetch origin __GH_REF_NAME__
-          git reset --hard origin/__GH_REF_NAME__
-          git clean -ffd
-          echo "Checked out commit: $(git rev-parse --short HEAD)"
-
-          # Handle .env file (copy from /home/ec2-user/wearable.env)
-          if [ -f /home/ec2-user/wearable.env ]; then
-            cp /home/ec2-user/wearable.env backend/config/.env
-            echo "Updated backend/config/.env from /home/ec2-user/wearable.env"
-          elif [ ! -f backend/config/.env ]; then
-            cp backend/config/.env.example backend/config/.env
-            echo "Warning: /home/ec2-user/wearable.env not found. Created from example."
-          fi
-
-          # Stop and remove existing containers first so host ports are
-          # released and no stale container lingers before recreate.
-          docker compose down --remove-orphans
-
-          # Rebuild images (code changes invalidate the COPY layer, so
-          # normal cache is fine and fast). Builds app + frontend; the shared
-          # open-wearables-platform:latest image is produced by the app build.
-          docker compose build
-          
-
-          # Clean restart. --force-recreate recreates EVERY container — without
-          # it, worker/beat/flower keep the old container (they share the
-          # :latest image with no build section, so compose thinks they are
-          # unchanged and skips them, leaving stale code running).
+          # docker-compose.yml on this box was restored from S3 by the
+          # Terraform bootstrap, not git-cloned - it's not touched here.
+          # --force-recreate recreates EVERY container even though
+          # worker/beat/flower share the retagged :latest image with no
+          # build section (compose would otherwise think they're unchanged
+          # and skip them, leaving stale code running).
+          cd /home/ubuntu/open-wearables
           docker compose up -d --force-recreate --remove-orphans
-
-          # Drop dangling images left by the rebuild.
           docker image prune -f
-
-          # Show resulting state in the deploy log.
           docker compose ps
-          INNER
-
-          chown ec2-user:ec2-user /tmp/ow-deploy-inner.sh
-          chmod +x /tmp/ow-deploy-inner.sh
-          su - ec2-user -c /tmp/ow-deploy-inner.sh
-          rm -f /tmp/ow-deploy-inner.sh
           SCRIPT
-
-          # Substitute the GitHub context values (kept out of the heredoc's
-          # interpolation so the script is one plain literal, easy to eyeball).
-          sed -i "s|__GH_REPOSITORY__|${GH_REPOSITORY}|g; s|__GH_REF_NAME__|${GH_REF_NAME}|g" /tmp/deploy.sh
 
           echo "--- deploy.sh: $(wc -l < /tmp/deploy.sh) lines ---"
 
-          # Build the SSM parameters as a JSON file directly instead of
-          # piping through `jq` inside a nested command substitution - that
-          # pattern proved unreliable to debug (a prior run silently sent an
-          # empty commands=[""] payload, so the script never touched Docker
-          # even though the workflow reported success).
+          # Built as a JSON file directly (not through a nested jq pipe) -
+          # that pattern proved unreliable to debug in the previous version
+          # of this workflow (a silent empty commands=[""] payload).
           python3 -c "
           import json
           with open('/tmp/deploy.sh') as f:
