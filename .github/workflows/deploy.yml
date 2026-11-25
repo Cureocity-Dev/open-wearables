@@ -112,6 +112,11 @@ jobs:
           set -euo pipefail
 
           cat > /tmp/deploy.sh <<SCRIPT
+          #!/bin/bash
+          # AWS-RunShellScript defaults to /bin/sh, which is dash on Ubuntu
+          # (uat-infra) - dash has no -o pipefail, unlike the bash-as-sh
+          # setup on the old cureocity-uat host this workflow originally
+          # targeted. The shebang forces the SSM agent to actually use bash.
           set -euo pipefail
 
           aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
